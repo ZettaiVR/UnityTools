@@ -1,48 +1,36 @@
 ﻿using UnityEditor;
 using System.Collections.Generic;
-using ABI.CCK.Components;
+using VRCSDK2;
 using System;
 using System.Linq;
 using UnityEngine;
-using ABI.CCK.Scripts.Editor;
 
 namespace CCK_Extensions
 {
-    public class UploadPercent : ABI.CCK.Scripts.Runtime.CCK_RuntimeUploaderMaster
+    [CustomEditor(typeof(VRC_AvatarDescriptor))]
+    public class AvatarExtensions : AvatarDescriptorEditor
     {
-        void Update()
-        {
-            if (isUploading)
-            {
-                //or just cast it as int
-#if UNITY_EDITOR
-                updater.uploadProgressText.text = updater.uploadProgressText.text.Split('.')[0] + "%";
-#endif
-            }
-        }
-    }
-    [CustomEditor(typeof(CVRAvatar))]
-    public class AvatarExtensions : CCK_CVRAvatarEditor
-    {
+        private AvatarProfiler.ProfilerResult result = null;
         private Extension extension = null;
         public void OnEnable()
         {
-            extension = new Extension(((CVRAvatar)target)) { useEyeBoneWeights = true };           
+            extension = new Extension((VRC_AvatarDescriptor)target);
+            result = new AvatarProfiler.ProfilerResult(((VRC_AvatarDescriptor)target).transform);
         }
         public override void OnInspectorGUI()
         {
             extension.OnInspectorGUI();
             EditorGUILayout.Space();
             base.OnInspectorGUI();
+            result.OnInspectorGUI();
         }
         public class Extension
         {
             private static readonly string[] _visemeNames = new[] { "sil", "PP", "FF", "TH", "DD", "kk", "CH", "SS", "nn", "RR", "aa", "E", "ih", "oh", "ou" };
-            private static readonly string[] _blinkNames = new[] { "blink_left", "blink_right", "lowerlid_left", "lowerlid_right" };
-            private readonly CVRAvatar m_avatar;
+            private readonly VRC_AvatarDescriptor m_avatar;
             public bool useEyeBoneWeights;
             private List<string> m_blendShapeNames = null;
-            public Extension(CVRAvatar avatar)
+            public Extension(VRC_AvatarDescriptor avatar)
             {
                 m_avatar = avatar;
             }
@@ -58,12 +46,12 @@ namespace CCK_Extensions
                     FindMesh();
                     FindVisemes();
                     Animator animator;
-                    if (m_avatar.bodyMesh == null) { FindMesh(); }
-                    if ((animator = m_avatar.gameObject.GetComponent<Animator>()) != null && m_avatar.bodyMesh != null)
+                    if (m_avatar.VisemeSkinnedMesh == null) { FindMesh(); }
+                    if ((animator = m_avatar.gameObject.GetComponent<Animator>()) != null && m_avatar.VisemeSkinnedMesh != null)
                     {
                         Transform leftEye;
                         Transform rightEye;
-                        var bones = m_avatar.bodyMesh.bones.ToList();
+                        var bones = m_avatar.VisemeSkinnedMesh.bones.ToList();
                         var eyes = new List<int>();
                         if ((leftEye = animator.GetBoneTransform(HumanBodyBones.LeftEye)) != null)
                         {
@@ -75,25 +63,11 @@ namespace CCK_Extensions
                         }
                         if (eyes.Count > 0 && useEyeBoneWeights)
                         {
-                            m_avatar.viewPosition = GetAvgPositionFromBones(animator, m_avatar.transform.position, m_avatar.bodyMesh, eyes.ToArray());
+                            m_avatar.ViewPosition = GetAvgPositionFromBones(animator, m_avatar.transform.position, m_avatar.VisemeSkinnedMesh, eyes.ToArray());
                         }
                         else
                         {
                             GetViewpoint();
-                        }
-                        if (m_avatar.useVisemeLipsync)
-                        {
-                            m_avatar.voicePosition = GetAvgPositionFromBlendshape(m_avatar.transform.position, m_avatar.bodyMesh, m_avatar.visemeBlendshapes[m_avatar.visemeBlendshapes.Length - 1]);
-                        }
-                        else
-                        {
-                            //when we don't have visemes guess voicePosition from viewPosition
-                            m_avatar.voicePosition = new Vector3
-                            {
-                                x = (Mathf.Round(m_avatar.viewPosition.x * 1000f) / 1000f),
-                                y = (Mathf.Round(m_avatar.viewPosition.y / 1.05f * 1000f) / 1000f), //this is usually fairly close
-                                z = (Mathf.Round(m_avatar.viewPosition.z * 1.7f * 1000f) / 1000f)   //this can be off
-                            };
                         }
                     }
                 }
@@ -149,7 +123,7 @@ namespace CCK_Extensions
                         ohverts.Average(x => x.y),
                         ohverts.Average(x => x.z)
                         );
-                    Debug.Log($"mesh vert count: {meshVerts.Length}, blendshape vert count: {j} ({Mathf.Round(j * 10000f / meshVerts.Length) / 100f}%), raw position: {posAverage}");
+                    Debug.Log("mesh vert count: "+meshVerts.Length+ ", blendshape vert count: " + j + " (" + Mathf.Round(j * 10000f / meshVerts.Length) / 100f + "%), raw position: " + posAverage);
                     var result = skinnedMesh.transform.TransformPoint(posAverage) - avatarRoot;
                     return new Vector3(
                         (Mathf.Round(result.x * 1000f) / 1000f),
@@ -168,13 +142,11 @@ namespace CCK_Extensions
                 var boneVerts = new Vector3[skinnedMesh.sharedMesh.vertexCount];
                 var meshVerts = skinnedMesh.sharedMesh.vertices;
                 var rootScale = skinnedMesh.rootBone.transform.lossyScale.magnitude; //scale with armature scale, ie. when Armature is scaled at magnitude 100 instead of 1.
-
                 int j = 0; 
                 try
                 {
                     List<BoneWeight> boneWeights = new List<BoneWeight>();
                     skinnedMesh.sharedMesh.GetBoneWeights(boneWeights);
-
                     for (int i = 0; i < boneWeights.Count; i++)
                     {
                         for (int eyeIndex = 0; eyeIndex < eyeBones.Length; eyeIndex++)
@@ -192,13 +164,12 @@ namespace CCK_Extensions
                     {
                         eyeVerts[i] = boneVerts[i];
                     }
-
                     var posAverage = new Vector3(
                         eyeVerts.Average(x => x.x),
                         eyeVerts.Average(x => x.y),
                         eyeVerts.Average(x => x.z)
                         );
-                    Debug.Log($"mesh vert count: {meshVerts.Length}, bone vert count: {j} ({Mathf.Round(j * 10000f / meshVerts.Length) / 100f}%), raw position: {posAverage}");
+                    Debug.Log("mesh vert count: " + meshVerts.Length + ", bone vert count: " + j + " (" + Mathf.Round(j * 10000f / meshVerts.Length) / 100f + "%), raw position: " + posAverage);
                     var result = skinnedMesh.transform.TransformPoint(posAverage) - avatarRoot;
                     result = new Vector3(
                         (Mathf.Round(result.x * 1000f) / 1000f),
@@ -224,9 +195,8 @@ namespace CCK_Extensions
                 if ((LeftEye = animator.GetBoneTransform(HumanBodyBones.LeftEye)) != null &&
                         (RightEye = animator.GetBoneTransform(HumanBodyBones.RightEye)) != null)
                 {
-                    m_avatar.useEyeMovement = true;
                     var center = Vector3.Lerp(LeftEye.position, RightEye.position, 0.5f) - m_avatar.transform.position;
-                    m_avatar.viewPosition = new Vector3
+                    m_avatar.ViewPosition = new Vector3
                     {
                         x = (Mathf.Round(center.x * 1000f) / 1000f),
                         y = (Mathf.Round(center.y * 1000f) / 1000f),
@@ -242,10 +212,9 @@ namespace CCK_Extensions
                     {
                         Neck = animator.GetBoneTransform(HumanBodyBones.Neck);
                     }
-                    m_avatar.useEyeMovement = false;
                     Vector3 eyeLevel = (Neck.position - m_avatar.transform.position) * 1.1f;
                     eyeLevel.z += eyeLevel.y * 0.03f;
-                    m_avatar.viewPosition = new Vector3
+                    m_avatar.ViewPosition = new Vector3
                     {
                         x = (Mathf.Round(eyeLevel.x * 1000f) / 1000f),
                         y = (Mathf.Round(eyeLevel.y * 1000f) / 1000f),
@@ -257,35 +226,26 @@ namespace CCK_Extensions
             {
                 int index = 0;
                 if (m_blendShapeNames == null || m_blendShapeNames.Count < 4) GetBlendShapeNames();
-                for (int i = 0; i < m_avatar.visemeBlendshapes.Length; i++)
+                for (int i = 0; i < m_avatar.VisemeBlendShapes.Length; i++)
                 {
                     index = m_blendShapeNames.FindIndex(x => x.EndsWith("v_" + _visemeNames[i], StringComparison.OrdinalIgnoreCase));
                     if (index >= 0)
                     {
-                        m_avatar.visemeBlendshapes[i] = m_blendShapeNames[index];
-                        m_avatar.useVisemeLipsync = true;
-                    }
-                }
-                for (int i = 0; i < m_avatar.blinkBlendshape.Length; i++)
-                {
-                    index = m_blendShapeNames.FindIndex(x => x.EndsWith(_blinkNames[i], StringComparison.OrdinalIgnoreCase));
-                    if (index >= 0)
-                    {
-                        m_avatar.blinkBlendshape[i] = m_blendShapeNames[index];
-                        m_avatar.useBlinkBlendshapes = true;
+                        m_avatar.VisemeBlendShapes[i] = m_blendShapeNames[index];
+                        m_avatar.lipSync = VRC_AvatarDescriptor.LipSyncStyle.VisemeBlendShape;
                     }
                 }
             }
             private void FindMesh()
             {
-                if (m_avatar.bodyMesh is null)
+                if (m_avatar.VisemeSkinnedMesh == null)
                 {
                     var smrs = m_avatar.GetComponentsInChildren<SkinnedMeshRenderer>();
                     foreach (var smr in smrs)
                     {
                         if (smr.sharedMesh.blendShapeCount >= (_visemeNames.Length + 4))
                         {
-                            m_avatar.bodyMesh = smr;
+                            m_avatar.VisemeSkinnedMesh = smr;
                             GetBlendShapeNames();
                             return;
                         }
@@ -295,10 +255,10 @@ namespace CCK_Extensions
             void GetBlendShapeNames()
             {
                 m_blendShapeNames = new List<string> { "-none-" };
-                if (m_avatar.bodyMesh != null && m_avatar.bodyMesh.sharedMesh != null)
+                if (m_avatar.VisemeSkinnedMesh != null && m_avatar.VisemeSkinnedMesh.sharedMesh != null)
                 {
-                    for (int i = 0; i < m_avatar.bodyMesh.sharedMesh.blendShapeCount; ++i)
-                        m_blendShapeNames.Add(m_avatar.bodyMesh.sharedMesh.GetBlendShapeName(i));
+                    for (int i = 0; i < m_avatar.VisemeSkinnedMesh.sharedMesh.blendShapeCount; ++i)
+                        m_blendShapeNames.Add(m_avatar.VisemeSkinnedMesh.sharedMesh.GetBlendShapeName(i));
                 }
                 else
                 {
