@@ -25,6 +25,22 @@ public class MirrorAvatar : MonoBehaviour
     public Renderer[] RenderersToShow;
     private Renderer[] _renderersToHide;//previous state
     private Renderer[] _renderersToShow;
+    private void ModifyOverrides(Renderer[] renderersIn, List<Renderer> smrlist, List<Renderer> rendererlist, bool? smrBool, bool? rendererBool ) 
+    {
+        foreach (Renderer item in renderersIn)
+        {
+            int index = smrlist.IndexOf(item);
+            if (index >= 0)
+            {
+                shrinkSkinnedMeshOverride[index] = smrBool;
+            }
+            index = rendererlist.IndexOf(item);
+            if (index >= 0)
+            {
+                hideMeshOverride[index] = rendererBool;
+            }
+        }
+    }
     private void LateUpdate()
     {
         if (_renderersToHide == null)
@@ -43,59 +59,10 @@ public class MirrorAvatar : MonoBehaviour
             removedFromShowList.RemoveAll(m => RenderersToShow.Contains(m));
             var removedFromHideList = _renderersToHide.ToList();
             removedFromHideList.RemoveAll(m => RenderersToHide.Contains(m));
-
-            foreach (Renderer item in RenderersToShow)
-            {
-                int index = smrlist.IndexOf(item);
-                if (index >= 0) 
-                {
-                    shrinkSkinnedMeshOverride[index] = false;
-                }
-                index = rendererlist.IndexOf(item); 
-                if (index >= 0)
-                {
-                    hideMeshOverride[index] = false;
-                }
-            }
-            foreach (Renderer item in removedFromHideList)
-            {
-                int index = smrlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    shrinkSkinnedMeshOverride[index] = null;
-                }
-                index = rendererlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    hideMeshOverride[index] = false;
-                }
-            }
-            foreach (Renderer item in RenderersToHide)
-            {
-                int index = smrlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    shrinkSkinnedMeshOverride[index] = true;
-                }
-                index = rendererlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    hideMeshOverride[index] = true;
-                }
-            }
-            foreach (Renderer item in removedFromShowList)
-            {
-                int index = smrlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    shrinkSkinnedMeshOverride[index] = null;
-                }
-                index = rendererlist.IndexOf(item);
-                if (index >= 0)
-                {
-                    hideMeshOverride[index] = true;
-                }
-            }
+            ModifyOverrides(RenderersToShow, smrlist, rendererlist, false, false);
+            ModifyOverrides(removedFromHideList.ToArray(), smrlist, rendererlist, null, false);
+            ModifyOverrides(RenderersToHide, smrlist, rendererlist, true, true);
+            ModifyOverrides(removedFromShowList.ToArray(), smrlist, rendererlist, null, true);
             _renderersToHide = RenderersToHide.ToArray();
             _renderersToShow = RenderersToShow.ToArray();
         }
