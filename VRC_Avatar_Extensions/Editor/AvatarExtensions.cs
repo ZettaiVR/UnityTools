@@ -5,7 +5,7 @@ using System;
 using System.Linq;
 using UnityEngine;
 
-namespace CCK_Extensions
+namespace VRC_Extensions
 {
     [CustomEditor(typeof(VRC_AvatarDescriptor))]
     public class AvatarExtensions : AvatarDescriptorEditor
