@@ -5,7 +5,12 @@ using System.Linq;
 
 public class MirrorAvatar : MonoBehaviour
 {
-    //doesn't include other kinds of renderers like line, trail, or particle system renderers.
+    private enum OverrideValue
+    {
+        Default = 0,
+        Hide = 1,
+        Show = 2
+    }
     private SkinnedMeshRenderer[] skinnedMeshRenderers;
     private Renderer[] otherRenderers;  //includes all renderers
     private bool[] shrinkSkinnedMesh;
@@ -14,43 +19,35 @@ public class MirrorAvatar : MonoBehaviour
     private bool[] enabledStateMesh;
     private bool[] enabledStateSkinnedMesh;
     private bool isActive;
-    private bool?[] shrinkSkinnedMeshOverride;
-    private bool?[] hideMeshOverride;
+    private OverrideValue[] shrinkSkinnedMeshOverride;
+    private OverrideValue[] hideMeshOverride;
     private Transform head;
     private GameObject zeroBone;
-    private Transform[][] original;     //first: index in skinnedMeshRenderers[] second: Transform[] to replace SMR bones with 
+    private Transform[][] original;         //first: index in skinnedMeshRenderers[] second: Transform[] to replace SMR bones with 
     private Transform[][] noHead;
-    public float MaxDistance = 0.5f;    //set it based on avatar scale/height
-    public Renderer[] RenderersToHide;  //if a renderer is in both it will be hidden
-    public Renderer[] RenderersToShow;
-    private Renderer[] _renderersToHide;//previous state
-    private Renderer[] _renderersToShow;
-    private void ModifyOverrides(Renderer[] renderersIn, List<Renderer> smrlist, List<Renderer> rendererlist, bool? smrBool, bool? rendererBool ) 
+    public float MaxDistance = 0.5f;        //set it based on avatar scale/height
+    public List<Renderer> RenderersToHide;  //if a renderer is in both it will be hidden
+    public List<Renderer> RenderersToShow;
+    private List<Renderer> _renderersToHide = new List<Renderer>();
+    private List<Renderer> _renderersToShow = new List<Renderer>();
+    private void ModifyOverrides(List<Renderer> renderersIn, List<Renderer> smrlist, List<Renderer> rendererlist, OverrideValue overrideValue) 
     {
-        foreach (Renderer item in renderersIn)
+        for (int i = 0; i < renderersIn.Count; i++)
         {
-            int index = smrlist.IndexOf(item);
+            int index = smrlist.IndexOf(renderersIn[i]);
             if (index >= 0)
             {
-                shrinkSkinnedMeshOverride[index] = smrBool;
+                shrinkSkinnedMeshOverride[index] = overrideValue;
             }
-            index = rendererlist.IndexOf(item);
+            index = rendererlist.IndexOf(renderersIn[i]);
             if (index >= 0)
             {
-                hideMeshOverride[index] = rendererBool;
+                hideMeshOverride[index] = overrideValue;
             }
         }
     }
     private void LateUpdate()
     {
-        if (_renderersToHide == null)
-        {
-            _renderersToHide = new Renderer[0];
-        }
-        if (_renderersToShow == null)
-        {
-            _renderersToShow = new Renderer[0];
-        }
         if (!RenderersToHide.SequenceEqual(_renderersToHide) || !RenderersToShow.SequenceEqual(_renderersToShow))
         {
             var smrlist = skinnedMeshRenderers.ToList<Renderer>();
@@ -59,12 +56,12 @@ public class MirrorAvatar : MonoBehaviour
             removedFromShowList.RemoveAll(m => RenderersToShow.Contains(m));
             var removedFromHideList = _renderersToHide.ToList();
             removedFromHideList.RemoveAll(m => RenderersToHide.Contains(m));
-            ModifyOverrides(RenderersToShow, smrlist, rendererlist, false, false);
-            ModifyOverrides(removedFromHideList.ToArray(), smrlist, rendererlist, null, false);
-            ModifyOverrides(RenderersToHide, smrlist, rendererlist, true, true);
-            ModifyOverrides(removedFromShowList.ToArray(), smrlist, rendererlist, null, true);
-            _renderersToHide = RenderersToHide.ToArray();
-            _renderersToShow = RenderersToShow.ToArray();
+            ModifyOverrides(removedFromHideList, smrlist, rendererlist, OverrideValue.Default);
+            ModifyOverrides(removedFromShowList, smrlist, rendererlist, OverrideValue.Default);
+            ModifyOverrides(RenderersToShow, smrlist, rendererlist, OverrideValue.Show); 
+            ModifyOverrides(RenderersToHide, smrlist, rendererlist, OverrideValue.Hide);
+            _renderersToHide = RenderersToHide.ToList();
+            _renderersToShow = RenderersToShow.ToList();
         }
     }
     // Start is called before the first frame update
@@ -111,10 +108,10 @@ public class MirrorAvatar : MonoBehaviour
         original = new Transform[skinnedMeshRenderers.Length][];
         noHead = new Transform[skinnedMeshRenderers.Length][];
         shrinkSkinnedMesh = new bool[skinnedMeshRenderers.Length];
-        shrinkSkinnedMeshOverride = new bool?[skinnedMeshRenderers.Length];
+        shrinkSkinnedMeshOverride = new OverrideValue[skinnedMeshRenderers.Length];
         for (int i = 0; i < skinnedMeshRenderers.Length; i++)
         {
-            shrinkSkinnedMeshOverride[i] = null;
+            shrinkSkinnedMeshOverride[i] = OverrideValue.Default;
         }
         hideSkinnedMesh = new bool[skinnedMeshRenderers.Length];
         enabledStateSkinnedMesh = new bool[skinnedMeshRenderers.Length];
@@ -164,10 +161,10 @@ public class MirrorAvatar : MonoBehaviour
         }
         otherRenderers = RemoveSMR(MRList, SMRList);
         hideMesh = new bool[otherRenderers.Length];
-        hideMeshOverride = new bool?[otherRenderers.Length];
+        hideMeshOverride = new OverrideValue[otherRenderers.Length];
         for (int i = 0; i < otherRenderers.Length; i++)
         {
-            hideMeshOverride[i] = null;
+            hideMeshOverride[i] = OverrideValue.Default;
         }
         enabledStateMesh = new bool[otherRenderers.Length];
         for (var i = 0; i < otherRenderers.Length; i++)
@@ -218,15 +215,16 @@ public class MirrorAvatar : MonoBehaviour
             {
                 for (var i = 0; i < shrinkSkinnedMesh.Length; i++) 
                 {
-                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == null))
+                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == OverrideValue.Default))
                     {
                         skinnedMeshRenderers[i].bones = noHead[i];
+                        continue;
                     }
                     else
                     {
                         //  skinnedMeshRenderers[i].bones = original[i]; 
                     }
-                    if (shrinkSkinnedMeshOverride[i] == true)
+                    if (shrinkSkinnedMeshOverride[i] == OverrideValue.Hide)
                     {
                         enabledStateSkinnedMesh[i] = skinnedMeshRenderers[i].enabled;
                         skinnedMeshRenderers[i].enabled = false;
@@ -234,7 +232,7 @@ public class MirrorAvatar : MonoBehaviour
                 }
                 for (var i = 0; i < hideMesh.Length; i++)
                 {
-                    if (hideMesh[i] && (hideMeshOverride[i] != false))
+                    if (hideMesh[i] && (hideMeshOverride[i] != OverrideValue.Show) || hideMeshOverride[i] == OverrideValue.Hide)
                     {
                         enabledStateMesh[i] = otherRenderers[i].enabled;
                         if (otherRenderers[i].enabled)
@@ -255,18 +253,19 @@ public class MirrorAvatar : MonoBehaviour
             {
                 for (var i = 0; i < shrinkSkinnedMesh.Length; i++)
                 {
-                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == null))
+                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == OverrideValue.Default))
                     {
                         skinnedMeshRenderers[i].bones = original[i];
+                        continue;
                     }
-                    if (shrinkSkinnedMeshOverride[i] == true)
+                    if (shrinkSkinnedMeshOverride[i] == OverrideValue.Hide)
                     {
                         skinnedMeshRenderers[i].enabled = enabledStateSkinnedMesh[i];
                     }
                 }
                 for (var i = 0; i < hideMesh.Length; i++)
                 {
-                    if (hideMesh[i] && (hideMeshOverride[i] != false))
+                    if (hideMesh[i] && (hideMeshOverride[i] != OverrideValue.Show) || hideMeshOverride[i] == OverrideValue.Hide)
                     {
                         otherRenderers[i].enabled = enabledStateMesh[i];
                     }
