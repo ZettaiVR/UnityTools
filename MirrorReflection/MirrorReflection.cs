@@ -36,7 +36,7 @@ public class MirrorReflection : MonoBehaviour
 	{
 		updateRenderResolution();
 		string name = "MirrorCamera helper " + GetInstanceID();
-		for (int i = 0; transform.childCount > 0; i++)
+		for (int i = 0; transform.childCount > i; i++)
 		{
 			if (transform.GetChild(i).name == name)
 			{
