@@ -13,7 +13,7 @@ public class MirrorReflection : MonoBehaviour
 	public bool MoveMirrorCam = false;
 	public bool useVRAMOptimization = false;
 	public bool m_DisablePixelLights = true;
-	public int m_TextureSize = 2048;
+	public int MaxTextureSize = 2048;
 	public LayerMask m_ReflectLayers = -1;
 
 
@@ -30,10 +30,17 @@ public class MirrorReflection : MonoBehaviour
 	private int height;
 	private Renderer m_Renderer;
 	private MeshFilter meshFilter;
+	private Material[] m_sharedMaterials;
+	private bool useMsaaTexture;
 	private const string m_leftEyeName = "_ReflectionTexLeft";
 	private const string m_rightEyeName = "_ReflectionTexRight";
-	private const int m_MaxUnoptimizedMSAALevel = (int)AntiAliasing.MSAA_Off;
-	private Material[] m_sharedMaterials;
+	private string m_reflectionTextureNameL;
+	private string m_reflectionTextureNameR;
+	private string m_ReflectionTextureMSAAName;
+	private string m_ReflectionCameraName;
+
+	private const int m_MaxUnoptimizedMSAALevelVr = (int)AntiAliasing.MSAA_Off;
+	private const int m_MaxUnoptimizedMSAALevelDesktop = (int)AntiAliasing.MSAA_x2;
 
 	private Transform cameraTransform;
 	private Transform Leye;
@@ -54,7 +61,7 @@ public class MirrorReflection : MonoBehaviour
 	{
 		if (playModeState == PlayModeStateChange.EnteredEditMode)
 		{
-			if (m_sharedMaterials != null && m_sharedMaterials.Length > 0)
+			if (m_sharedMaterials != null && m_Renderer  != null && m_sharedMaterials.Length > 0)
 				m_Renderer.sharedMaterials = m_sharedMaterials;
 		}
 	}
@@ -93,6 +100,11 @@ public class MirrorReflection : MonoBehaviour
 		gameObject.layer = 4;
 
 		updateRenderResolution();
+		int instanceID = GetInstanceID();
+		m_reflectionTextureNameL = "__MirrorReflectionLeft" + instanceID;
+		m_reflectionTextureNameR = "__MirrorReflectionRight" + instanceID;
+		m_ReflectionTextureMSAAName = "__MirrorReflectionMSAA" + instanceID;
+		m_ReflectionCameraName = "MirrorReflection Camera id" + instanceID;
 		// Use steamvr/oculus camera rig instead if available
 		{
 			string name = "MirrorCamera helper " + GetInstanceID();
@@ -130,7 +142,7 @@ public class MirrorReflection : MonoBehaviour
 	
     private void updateRenderResolution()
 	{
-		usedTextureSize = Math.Min(m_TextureSize, MockMirrorMaxRes);
+		usedTextureSize = Math.Min(MaxTextureSize, MockMirrorMaxRes);
 	}
 	// This is called when it's known that the object will be rendered by some
 	// camera. We render reflections and do other updates here.
@@ -160,7 +172,7 @@ public class MirrorReflection : MonoBehaviour
 		// Maximize the mirror texture resolution
 		width = Math.Min(usedTextureSize, currentCam.pixelWidth);
 		height = Math.Min(usedTextureSize, currentCam.pixelHeight);
-		// Remove if steamvr/oculus camera rig is present
+		// Remove if steamvr/oculus camera rig is present and use that instead
 		{
 			cameraTransform.SetPositionAndRotation(currentCam.transform.position, currentCam.transform.rotation);
 		}
@@ -174,11 +186,13 @@ public class MirrorReflection : MonoBehaviour
 				Leye2.localPosition = -Vector3.right * currentCam.stereoSeparation;
 				Reye2.localPosition = Vector3.right * currentCam.stereoSeparation;
 			}
-			if (useVRAMOptimization && actualMsaa > m_MaxUnoptimizedMSAALevel) 
-				SetupMSAAtexture();
-			if (!useVRAMOptimization && m_ReflectionTextureMSAA)
-				m_ReflectionTextureMSAA = null;
+			
 		}
+		useMsaaTexture = useVRAMOptimization && ((!currentCam.stereoEnabled && (actualMsaa > m_MaxUnoptimizedMSAALevelDesktop)) || (currentCam.stereoEnabled && (actualMsaa > m_MaxUnoptimizedMSAALevelVr)));
+		if (useMsaaTexture)
+			SetupMSAAtexture();
+		else if (m_ReflectionTextureMSAA)
+			m_ReflectionTextureMSAA = null;
 		// Set flag that we're rendering to a mirror
 		s_InsideRendering = true;
 		// Optionally disable pixel lights for reflection
@@ -208,7 +222,7 @@ public class MirrorReflection : MonoBehaviour
 		if (m_ReflectionTextureMSAA)
 			RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
 		m_ReflectionTextureMSAA = RenderTexture.GetTemporary(width, height, 24,RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default, actualMsaa, RenderTextureMemoryless.None, VRTextureUsage.None);
-		m_ReflectionTextureMSAA.name = "__MirrorReflectionMSAA" + GetInstanceID();
+		m_ReflectionTextureMSAA.name = m_ReflectionTextureMSAAName;
 	}
 	private bool Visible(Vector3 position)
 	{
@@ -224,7 +238,7 @@ public class MirrorReflection : MonoBehaviour
 		// Replace with proper eye positions if possible
 		else if (!(Visible(eye == Camera.StereoscopicEye.Left ? Leye.position : Reye.position) || Visible(eye == Camera.StereoscopicEye.Left ? Leye2.position : Reye2.position)))
 			return;
-		CreateMirrorObjects(currentCam, eye, ref ReflectionTexture);
+		CreateMirrorObjects(eye, ref ReflectionTexture);
 
 		// find out the reflection plane: position and normal in world space
 		Vector3 pos = transform.position;
@@ -251,7 +265,7 @@ public class MirrorReflection : MonoBehaviour
 		Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, pos, normal, 1.0f);
 		m_ReflectionCamera.projectionMatrix = (currentCam.stereoEnabled ? currentCam.GetStereoProjectionMatrix(eye) : currentCam.projectionMatrix);
 		m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
-		if (currentCam.stereoEnabled && useVRAMOptimization && actualMsaa > m_MaxUnoptimizedMSAALevel)
+		if (useMsaaTexture)
 		{
 			m_ReflectionCamera.targetTexture = m_ReflectionTextureMSAA;
 		}
@@ -276,7 +290,7 @@ public class MirrorReflection : MonoBehaviour
 		}
 		GL.invertCulling = invertCulling;
 		Material[] materials = rend.sharedMaterials;
-        if (currentCam.stereoEnabled && useVRAMOptimization && actualMsaa > m_MaxUnoptimizedMSAALevel)
+        if (useMsaaTexture)
 			Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, 0, 0, width, height, ReflectionTexture, 0, 0, 0, 0);
 		foreach (Material mat in materials)
 		{
@@ -333,26 +347,26 @@ public class MirrorReflection : MonoBehaviour
 	}
 
 	// On-demand create any objects we need
-	private void CreateMirrorObjects(Camera currentCamera, Camera.StereoscopicEye eye, ref RenderTexture reflectionTexture)
+	private void CreateMirrorObjects(Camera.StereoscopicEye eye, ref RenderTexture reflectionTexture) //Camera currentCamera, 
 	{
 		//width = Math.Min(usedTextureSize, currentCamera.pixelWidth);
 		//height = Math.Min(usedTextureSize, currentCamera.pixelHeight);
 
 
 		// Reflection render texture
-		int msaa = (currentCamera.stereoEnabled && useVRAMOptimization) ? 1 : actualMsaa;
+		int msaa = useMsaaTexture ? 1 : actualMsaa;
 		if (reflectionTexture)
 			RenderTexture.ReleaseTemporary(reflectionTexture);
 		reflectionTexture = RenderTexture.GetTemporary(width, height, 24,
 			RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Default, msaa,
 			RenderTextureMemoryless.None, VRTextureUsage.None);
-		reflectionTexture.name = "__MirrorReflection" + eye.ToString() + GetInstanceID();
+		reflectionTexture.name = eye == 0 ? m_reflectionTextureNameL : m_reflectionTextureNameR;
 		if (m_ReflectionCamera != null)
 			return;
 
 		// Camera for reflection
 
-		GameObject gameObject = new GameObject("MirrorReflection Camera id" + GetInstanceID(), typeof(Camera), typeof(Skybox));
+		GameObject gameObject = new GameObject(m_ReflectionCameraName, typeof(Camera), typeof(Skybox));
 		gameObject.transform.SetParent(transform);
 		m_ReflectionCamera = gameObject.GetComponent<Camera>();
 		m_ReflectionCamera.enabled = false;
