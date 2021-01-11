@@ -1,6 +1,6 @@
 ﻿using UnityEngine;
-using System.Collections;
 using System;
+using System.Collections.Generic;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -24,13 +24,12 @@ public class MirrorReflection : MonoBehaviour
 	private RenderTexture m_ReflectionTextureLeft;
 	private RenderTexture m_ReflectionTextureRight;
 	private int actualMsaa;
-	private static bool s_InsideRendering = false;
 	private float stereoSep;
 	private int width;
 	private int height;
 	private Renderer m_Renderer;
 	private MeshFilter meshFilter;
-	private Material[] m_sharedMaterials;
+	private Material[] m_sharedMaterials;	// Only relevant for the editor
 	private bool useMsaaTexture;
 	private const string m_leftEyeName = "_ReflectionTexLeft";
 	private const string m_rightEyeName = "_ReflectionTexRight";
@@ -38,6 +37,9 @@ public class MirrorReflection : MonoBehaviour
 	private string m_reflectionTextureNameR;
 	private string m_ReflectionTextureMSAAName;
 	private string m_ReflectionCameraName;
+
+	private static List<Material> s_MirrorMaterials;
+	private static bool s_InsideRendering = false;
 
 	private const int m_MaxUnoptimizedMSAALevelVr = (int)AntiAliasing.MSAA_Off;
 	private const int m_MaxUnoptimizedMSAALevelDesktop = (int)AntiAliasing.MSAA_x2;
@@ -71,6 +73,9 @@ public class MirrorReflection : MonoBehaviour
 #if UNITY_EDITOR
 		EditorApplication.playModeStateChanged += ModeChanged;
 #endif
+		// Move mirror to water layer
+		gameObject.layer = 4;
+
 		m_Renderer = GetComponent<Renderer>();
 
 		// Get the mirror mesh normal from the first vertex
@@ -87,17 +92,30 @@ public class MirrorReflection : MonoBehaviour
 		}
 
 		// Make sure the mirror's material is unique
+		if (s_MirrorMaterials == null)
+			s_MirrorMaterials = new List<Material>();
+		
+		
 		m_sharedMaterials = m_Renderer.sharedMaterials;
 		Material[] sharedMaterials = m_Renderer.sharedMaterials;
+		if (sharedMaterials == null || sharedMaterials.Length == 0) 
+			return;
 		for (int i = 0; i < sharedMaterials.Length; i++)
 		{
 			if (sharedMaterials[i].shader.name == "FX/MirrorReflectionBasic")
-   				sharedMaterials[i] = Instantiate(sharedMaterials[i]);
+			{
+				if (s_MirrorMaterials.Contains(sharedMaterials[i]))
+				{
+					sharedMaterials[i] = Instantiate(sharedMaterials[i]);
+					s_MirrorMaterials.Add(sharedMaterials[i]);
+				}
+				else
+				{
+					s_MirrorMaterials.Add(sharedMaterials[i]);
+				}
+			}
 		}
 		m_Renderer.materials = sharedMaterials;
-
-		// Move mirror to water layer
-		gameObject.layer = 4;
 
 		updateRenderResolution();
 		int instanceID = GetInstanceID();
@@ -139,7 +157,6 @@ public class MirrorReflection : MonoBehaviour
 			Reye2.SetParent(cameraTransform);
 		}
 	}
-	
     private void updateRenderResolution()
 	{
 		usedTextureSize = Math.Min(MaxTextureSize, MockMirrorMaxRes);
@@ -323,8 +340,21 @@ public class MirrorReflection : MonoBehaviour
 			m_ReflectionTextureMSAA = null;
 		}
 	}
-
-	private void UpdateCameraModes(Camera src, Camera dest)
+    private void OnDestroy()
+    {
+		if (s_MirrorMaterials != null)
+		{
+			Material[] sharedMaterials = m_Renderer.sharedMaterials;
+			for (int i = 0; i < sharedMaterials.Length; i++)
+			{
+				if (sharedMaterials[i].shader.name == "FX/MirrorReflectionBasic")
+				{
+					s_MirrorMaterials.Remove(sharedMaterials[i]);
+				}
+			}
+		}
+	}
+    private void UpdateCameraModes(Camera src, Camera dest)
 	{
 		if (dest == null)
 			return;
@@ -362,9 +392,9 @@ public class MirrorReflection : MonoBehaviour
 			RenderTextureMemoryless.None, VRTextureUsage.None);
 		reflectionTexture.name = eye == 0 ? m_reflectionTextureNameL : m_reflectionTextureNameR;
 		if (m_ReflectionCamera != null)
-			return;
+			return;	// Camera already exists
 
-		// Camera for reflection
+		// Create Camera for reflection
 
 		GameObject gameObject = new GameObject(m_ReflectionCameraName, typeof(Camera), typeof(Skybox));
 		gameObject.transform.SetParent(transform);
