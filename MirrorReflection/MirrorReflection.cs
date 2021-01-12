@@ -29,7 +29,6 @@ public class MirrorReflection : MonoBehaviour
 	private int height;
 	private Renderer m_Renderer;
 	private MeshFilter meshFilter;
-	private Material[] m_sharedMaterials;	// Only relevant for the editor
 	private bool useMsaaTexture;
 	private const string m_leftEyeName = "_ReflectionTexLeft";
 	private const string m_rightEyeName = "_ReflectionTexRight";
@@ -37,14 +36,17 @@ public class MirrorReflection : MonoBehaviour
 	private string m_reflectionTextureNameR;
 	private string m_ReflectionTextureMSAAName;
 	private string m_ReflectionCameraName;
-
+#if UNITY_EDITOR
+	private Material[] m_sharedMaterials;   // Only relevant for the editor
+#endif
 	private static List<Material> s_MirrorMaterials;
 	private static bool s_InsideRendering = false;
 
 	private const int m_MaxUnoptimizedMSAALevelVr = (int)AntiAliasing.MSAA_Off;
 	private const int m_MaxUnoptimizedMSAALevelDesktop = (int)AntiAliasing.MSAA_x2;
+	private readonly Matrix4x4 m_InversionMatrix = new Matrix4x4 { m00 = -1, m11 = 1, m22 = 1, m33 = 1 };
 
-	private Transform cameraTransform;
+private Transform cameraTransform;
 	private Transform Leye;
 	private Transform Leye2;
 	private Transform Reye;
@@ -94,9 +96,10 @@ public class MirrorReflection : MonoBehaviour
 		// Make sure the mirror's material is unique
 		if (s_MirrorMaterials == null)
 			s_MirrorMaterials = new List<Material>();
-		
-		
+
+#if UNITY_EDITOR
 		m_sharedMaterials = m_Renderer.sharedMaterials;
+#endif
 		Material[] sharedMaterials = m_Renderer.sharedMaterials;
 		if (sharedMaterials == null || sharedMaterials.Length == 0) 
 			return;
@@ -275,12 +278,12 @@ public class MirrorReflection : MonoBehaviour
 		Vector4 reflectionPlane = new Vector4(normal.x, normal.y, normal.z, d);
 		Matrix4x4 worldToCameraMatrix = Matrix4x4.zero;
 		CalculateReflectionMatrix(ref worldToCameraMatrix, reflectionPlane);
-		worldToCameraMatrix = !currentCam.stereoEnabled ? currentCam.worldToCameraMatrix * worldToCameraMatrix : currentCam.GetStereoViewMatrix(eye) * worldToCameraMatrix;
+		worldToCameraMatrix = m_InversionMatrix * (!currentCam.stereoEnabled ? currentCam.worldToCameraMatrix * worldToCameraMatrix : currentCam.GetStereoViewMatrix(eye) * worldToCameraMatrix);
 		m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
 		// Setup oblique projection matrix so that near plane is our reflection
 		// plane. This way we clip everything below/above it for free.
 		Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, pos, normal, 1.0f);
-		m_ReflectionCamera.projectionMatrix = (currentCam.stereoEnabled ? currentCam.GetStereoProjectionMatrix(eye) : currentCam.projectionMatrix);
+		m_ReflectionCamera.projectionMatrix = m_InversionMatrix * (currentCam.stereoEnabled ? currentCam.GetStereoProjectionMatrix(eye) : currentCam.projectionMatrix) * m_InversionMatrix;
 		m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
 		if (useMsaaTexture)
 		{
@@ -289,9 +292,7 @@ public class MirrorReflection : MonoBehaviour
 		else
 		{
 			m_ReflectionCamera.targetTexture = ReflectionTexture;
-		}		
-		bool invertCulling = GL.invertCulling;
-		GL.invertCulling = !invertCulling;
+		}
 		if (MoveMirrorCam)
 		{
 			Vector3 camPosition = currentCam.transform.position;
@@ -305,7 +306,6 @@ public class MirrorReflection : MonoBehaviour
 		{
 			m_ReflectionCamera.Render();
 		}
-		GL.invertCulling = invertCulling;
 		Material[] materials = rend.sharedMaterials;
         if (useMsaaTexture)
 			Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, 0, 0, width, height, ReflectionTexture, 0, 0, 0, 0);
