@@ -271,6 +271,14 @@ private Transform cameraTransform;
 		//mirrors never render the water layer, as they are on the water layer
 		m_ReflectionCamera.cullingMask = -17 & m_ReflectLayers.value;
 
+		if (MoveMirrorCam)
+		{
+			Vector3 camPosition = currentCam.transform.position;
+			m_ReflectionCamera.transform.position = m_ReflectionCamera.projectionMatrix.MultiplyPoint(camPosition);
+			Vector3 eulerAngles = currentCam.transform.eulerAngles;
+			m_ReflectionCamera.transform.eulerAngles = new Vector3(0.0f, eulerAngles.y, eulerAngles.z);
+			//m_ReflectionCamera.transform.position = camPosition;
+		}
 
 		// Render reflection
 		// Reflect camera around reflection plane
@@ -285,6 +293,7 @@ private Transform cameraTransform;
 		Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, pos, normal, 1.0f);
 		m_ReflectionCamera.projectionMatrix = m_InversionMatrix * (currentCam.stereoEnabled ? currentCam.GetStereoProjectionMatrix(eye) : currentCam.projectionMatrix) * m_InversionMatrix;
 		m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
+		
 		if (useMsaaTexture)
 		{
 			m_ReflectionCamera.targetTexture = m_ReflectionTextureMSAA;
@@ -293,19 +302,7 @@ private Transform cameraTransform;
 		{
 			m_ReflectionCamera.targetTexture = ReflectionTexture;
 		}
-		if (MoveMirrorCam)
-		{
-			Vector3 camPosition = currentCam.transform.position;
-			m_ReflectionCamera.transform.position = m_ReflectionCamera.projectionMatrix.MultiplyPoint(camPosition);
-			Vector3 eulerAngles = currentCam.transform.eulerAngles;
-			m_ReflectionCamera.transform.eulerAngles = new Vector3(0.0f, eulerAngles.y, eulerAngles.z);
-			m_ReflectionCamera.Render();
-			//m_ReflectionCamera.transform.position = camPosition;
-		}
-		else
-		{
-			m_ReflectionCamera.Render();
-		}
+		m_ReflectionCamera.Render();
 		Material[] materials = rend.sharedMaterials;
         if (useMsaaTexture)
 			Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, 0, 0, width, height, ReflectionTexture, 0, 0, 0, 0);
