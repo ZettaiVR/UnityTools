@@ -1,30 +1,53 @@
-﻿using UnityEditor;
+﻿using System;
+using UnityEditor;
 using UnityEngine;
 
 namespace Zettai
 {
     public class AvatarInfo : MonoBehaviour
     {
-        public string AvatarInfoString;
-        public uint AudioClipCount;
-        public double AudioClipSizeMB;
-        public uint AudioClipLength;
         public double textureMemMB;
         public double calc_memMB;
         public long textureMem;
         public long calc_mem;
-        public uint triangles;
-        public uint meshRenderers;
-        public uint skinnedMeshRenderers;
-        public uint lineTrailRenderers;
-        public uint clothNumber;
-        public uint clothVertCount;
-        public uint clothDiff;
-        public uint dbCount;
-        public uint dbCollCount;
-        public uint materialCount;
+        public string AvatarInfoString;
+        public double AudioClipSizeMB;
+        public int AudioClipCount;
+        public int AudioClipLength;
+        public int AudioSources;
+        public int TrianglesOrQuads;
+        public int meshRenderers;
+        public int skinnedMeshRenderers;
+        public int lineTrailRenderers;
+        public int lineTrailRendererTriCount;
+        public int clothNumber;
+        public int clothVertCount;
+        public int clothDiff;
+        public int dbCount;
+        public int dbCollisionCount;
+        public int materialCount;
+        public int passCount;
+        public int TransformCount;
+        public int RigidBodyCount;
+        public int ColliderCount;
+        public int JointCount;
+        public int ConstraintCount;
+        public int Animators;
+        public int OtherFinalIKComponents;
+        public int VRIKComponents;
+        public int TwistRelaxers;
+        public int MaxHiearchyDepth;
+        public int Lights;
+        public int skinnedBonesVRC;
+        public int skinnedBones;
+        public int particleSystems;
+        public int maxParticles;
+        public int otherRenderers;
+        public int additionalShaderKeywordCount;
+        public string LongestPath;
+        public string _MillisecsTaken;
     }
-
+    
 #if UNITY_EDITOR
     [CustomEditor(typeof(AvatarInfo))]
     public class AvatarInfo_Editor : Editor
@@ -35,13 +58,16 @@ namespace Zettai
             AvatarInfo avatarInfo = (AvatarInfo)target;
             if (GUILayout.Button("Measure Avatar"))
             {
+                DateTime start = DateTime.Now;
                 avatarInfo.AvatarInfoString = "";
                 QualitySettings.anisotropicFiltering = AnisotropicFiltering.ForceEnable;
+                AvatarInfoCalc.CountObjects(avatarInfo.gameObject, ref avatarInfo);
                 AvatarInfoCalc.CheckTextures(avatarInfo.gameObject, ref avatarInfo);
                 AvatarInfoCalc.CheckAudio(avatarInfo.gameObject,ref avatarInfo);
                 AvatarInfoCalc.CheckDB(avatarInfo.gameObject, ref avatarInfo);
                 AvatarInfoCalc.CheckRenderers(avatarInfo.gameObject, ref avatarInfo);
                 AvatarInfoCalc.CheckCloth(avatarInfo.gameObject, ref avatarInfo);
+                avatarInfo._MillisecsTaken = (DateTime.Now - start).TotalMilliseconds.ToString();
             }
         }
     }
