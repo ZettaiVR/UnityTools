@@ -4,78 +4,85 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Profiling;
+using UnityEngine.Rendering;
 using System.Reflection;
 using System.Text;
 
 namespace Zettai
 {
 
-    public static class AvatarInfoCalc
+    public class AvatarInfoCalc
     {
-        public static bool ShouldLog = true;
+        public static AvatarInfoCalc Instance { get { return instance; } }
+        private AvatarInfoCalc() { }
+        internal static readonly AvatarInfoCalc instance = new AvatarInfoCalc();
+        public bool ShouldLog = true;
         private const float FourThird = (4f / 3f);
         static readonly FieldInfo fi = typeof(DynamicBone).GetField("m_Particles", BindingFlags.NonPublic | BindingFlags.Instance);
-        static int clothVertCount;
-        static int dbCount;
-        static int dbCount2;
-        static int collCount;
-        static List<Renderer> renderers = new List<Renderer>();
-        static List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
-        static List<MeshRenderer> meshRenderers = new List<MeshRenderer>();
-        static List<TrailRenderer> trailRenderers = new List<TrailRenderer>();
-        static List<LineRenderer> lineRenderers = new List<LineRenderer>();
-        static List<ParticleSystemRenderer> particleSystemRenderers = new List<ParticleSystemRenderer>();
-        static List<CanvasRenderer> canvasRenderers = new List<CanvasRenderer>();
-        static List<BillboardRenderer>  billboardRenderers = new List<BillboardRenderer>();
-        static List<SpriteRenderer> spriteRenderers = new List<SpriteRenderer>();
-        static List<Transform> tempTransforms = new List<Transform>();
-        static List<AudioSource> audioSources = new List<AudioSource>();
-        static List<AudioClip> audioClips = new List<AudioClip>();
-        static List<Cloth> cloths = new List<Cloth>();
-        static List<DynamicBone> dynamicBones = new List<DynamicBone>();
-        static List<Transform> transforms = new List<Transform>();
-        static List<Joint> joints = new List<Joint>();
-        static List<Rigidbody> rigidbodies = new List<Rigidbody>();
-        static List<UnityEngine.Animations.IConstraint> constraints = new List<UnityEngine.Animations.IConstraint>();
-        static List<Animator> animators = new List<Animator>();
-        static List<Collider> colliders = new List<Collider>();
-        static List<RootMotion.FinalIK.VRIK> VRIKs = new List<RootMotion.FinalIK.VRIK>();
-        static List<RootMotion.FinalIK.IK> IKs = new List<RootMotion.FinalIK.IK>();
-        static List<RootMotion.FinalIK.TwistRelaxer> twistRelaxers = new List<RootMotion.FinalIK.TwistRelaxer>();
-        static List<Light> lights = new List<Light>();
-        static string output = "";
-        static int faceCounter;
-        static MeshFilter meshFilter;
-        static string logMessage;
-        static double _totalSize;
-        static float length;
-        static AudioClip audioClip;
-        static double _size;
-        static double AudioClipSizeMB;
-        static int dbCollCount;
-        static List<DynamicBoneColliderBase> dbColliders;
-        static IList dbParticlesList;
-        static int index;
-        static int max = 0;
-        static StringBuilder sb = new StringBuilder();
-        static List<int> leafDepth = new List<int>();
-        static List<Transform> leafTransforms = new List<Transform>();
-        static Type type;
-        static SkinnedMeshRenderer skinnedMeshRenderer;
-        static List<Transform> BoneTransforms = new List<Transform>();
-        static UnityEngine.Rendering.SubMeshDescriptor submesh;
-        static Mesh tempMesh;
-        static List<Texture> textures = new List<Texture>();
-        static Texture _tempText;
-        static List<string> outNames = new List<string>();
-        static string log_output;
-        static RenderTexture rt;
-        static double _round;
-        static Texture2D texture2D;
-        static Cubemap cubemap;
-        static long _mem;
-        static long _calc_mem;
-        static List<string> shaderKeywords = new List<string>();
+
+        readonly List<Renderer> renderers = new List<Renderer>();
+        readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
+        readonly List<MeshRenderer> meshRenderers = new List<MeshRenderer>();
+        readonly List<TrailRenderer> trailRenderers = new List<TrailRenderer>();
+        readonly List<LineRenderer> lineRenderers = new List<LineRenderer>();
+        readonly List<ParticleSystemRenderer> particleSystemRenderers = new List<ParticleSystemRenderer>();
+        readonly List<CanvasRenderer> canvasRenderers = new List<CanvasRenderer>();
+        readonly List<BillboardRenderer>  billboardRenderers = new List<BillboardRenderer>();
+        readonly List<SpriteRenderer> spriteRenderers = new List<SpriteRenderer>();
+
+        readonly List<Animator> animators = new List<Animator>();
+        readonly List<AudioSource> audioSources = new List<AudioSource>();
+        readonly List<Cloth> cloths = new List<Cloth>();
+        readonly List<Collider> colliders = new List<Collider>();
+        readonly List<DynamicBone> dynamicBones = new List<DynamicBone>();
+        readonly List<UnityEngine.Animations.IConstraint> constraints = new List<UnityEngine.Animations.IConstraint>();
+        readonly List<Joint> joints = new List<Joint>();
+        readonly List<Light> lights = new List<Light>();
+        readonly List<Rigidbody> rigidbodies = new List<Rigidbody>();
+        readonly List<RootMotion.FinalIK.VRIK> VRIKs = new List<RootMotion.FinalIK.VRIK>();
+        readonly List<RootMotion.FinalIK.IK> IKs = new List<RootMotion.FinalIK.IK>();
+        readonly List<RootMotion.FinalIK.TwistRelaxer> twistRelaxers = new List<RootMotion.FinalIK.TwistRelaxer>();
+        readonly List<Transform> tempTransforms = new List<Transform>();
+        readonly List<Transform> transforms = new List<Transform>();
+
+        readonly List<string> outNames = new List<string>();
+        readonly List<string> shaderKeywords = new List<string>();
+        readonly List<int> leafDepth = new List<int>();
+        readonly StringBuilder sb = new StringBuilder();
+
+        List<AudioClip> audioClips = new List<AudioClip>();
+        List<Texture> textures = new List<Texture>();
+
+        List<DynamicBoneColliderBase> dbColliders;
+
+        string output = "";
+        string log_output;
+        int faceCounter; 
+        int clothVertCount;
+        int dbCount;
+        int dbCount2;
+        int collCount;
+        int dbCollCount;
+        int index;
+        int max = 0;
+        long profiler_mem;
+        long _calc_mem;
+        float length;
+        double _totalSize;
+        double _round;
+        double _size;
+
+        AudioClip audioClip;
+        AudioSource audioSource;
+        Cubemap cubemap;
+        IList dbParticlesList;
+        MeshFilter meshFilter;
+        RenderTexture rt;
+        SubMeshDescriptor submesh;
+        Texture _tempText;
+        Texture2D texture2D;
+        Type type;
+        DateTime start;
 
         public static readonly List<string> defaultKeywords = new List<string>(new string[]
         { 
@@ -164,7 +171,7 @@ namespace Zettai
 "VIGNETTE_MASKED"
         });
 
-        public static void CheckCloth(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckCloth(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
             _AvatarInfo.clothNumber = 0;
             _AvatarInfo.clothDiff = 0;
@@ -177,12 +184,13 @@ namespace Zettai
                 _AvatarInfo.clothDiff += (int)(clothVertCount * cloth.clothSolverFrequency);
                 _AvatarInfo.clothNumber++;
             }
+            cloths.Clear();
         }
-        public static void CheckDB(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckDB(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
             dbCount = 0;
             collCount = 0;
-            ava.GetComponentsInChildren<DynamicBone>(true, dynamicBones);
+            ava.GetComponentsInChildren(true, dynamicBones);
             foreach (DynamicBone db in dynamicBones)
             {
                 try
@@ -215,11 +223,14 @@ namespace Zettai
                     Debug.LogError(e);
                 }
             }
+            dynamicBones.Clear();
+            dbParticlesList = null;
+            dbColliders = null;
             _AvatarInfo.dbCount = dbCount;
             _AvatarInfo.dbCollisionCount = collCount;
         }
 
-        public static void CountObjects(GameObject gameObject, ref AvatarInfo avatarInfo)
+        public void CountObjects(GameObject gameObject, ref AvatarInfo avatarInfo)
         {
             gameObject.GetComponentsInChildren(true, transforms);
             gameObject.GetComponentsInChildren(true, joints);
@@ -242,16 +253,32 @@ namespace Zettai
             avatarInfo.Lights = lights.Count;
             avatarInfo.ColliderCount = colliders.Count;
             leafDepth.Clear();
-            leafTransforms.Clear();
+            transforms.Clear();
             DFSGetChildren(gameObject.transform, 0);
             avatarInfo.MaxHiearchyDepth = GetMaxInList(leafDepth);
-            if (ShouldLog) Debug.Log(LeavesToString());
             avatarInfo.LongestPath = GetLeafPath(index);
-            if (ShouldLog) Debug.Log(avatarInfo.LongestPath);
-            if (ShouldLog) Debug.Log(leafDepth.Max() + " " + leafTransforms[leafDepth.IndexOf(leafDepth.Max())].name);
+            if (ShouldLog)
+            {
+                Debug.Log(LeavesToString());
+                Debug.Log(avatarInfo.LongestPath);
+                Debug.Log(leafDepth.Max() + " " + transforms[leafDepth.IndexOf(leafDepth.Max())].name);
+            }
+            sb.Clear();
+            tempTransforms.Clear();
+            leafDepth.Clear();
+            transforms.Clear();
+            joints.Clear();
+            rigidbodies.Clear();
+            constraints.Clear();
+            animators.Clear();
+            VRIKs.Clear();
+            IKs.Clear();
+            twistRelaxers.Clear();
+            lights.Clear();
+            colliders.Clear();
         }
         
-        private static int GetMaxInList(IList<int> list) 
+        private int GetMaxInList(IList<int> list) 
         {
             max = 0;
             index = 0;
@@ -266,19 +293,19 @@ namespace Zettai
             return max + 1;
         }
 
-        private static string LeavesToString()
+        private string LeavesToString()
         {
             output = "";
             for (int i = 0; i < leafDepth.Count; i++)
             {
-                output += $"{leafTransforms[i].name} ({leafDepth[i]})\r\n";
+                output += $"{transforms[i].name} ({leafDepth[i]})\r\n";
             }
             return output;
         }
-        private static string GetLeafPath(int index)
+        private string GetLeafPath(int index)
         {
-            if (leafTransforms.Count == 0 || leafTransforms.Count < index) { return ""; }
-            leafTransforms[index].GetComponentsInParent(true, tempTransforms);
+            if (transforms.Count == 0 || transforms.Count < index) { return ""; }
+            transforms[index].GetComponentsInParent(true, tempTransforms);
             if (tempTransforms.Count == 0) { return ""; }
             sb.Clear();
             sb.Append(tempTransforms[tempTransforms.Count - 1].name);
@@ -289,13 +316,13 @@ namespace Zettai
             }
             return sb.ToString();
         }
-        private static void DFSGetChildren(Transform transform, int level)
+        private void DFSGetChildren(Transform transform, int level)
         {
             var childCount = transform.childCount;
             if (childCount == 0 && level == 0) 
             {
                 leafDepth.Add(0);
-                leafTransforms.Add(transform);
+                transforms.Add(transform);
                 return;
             }
             level++;
@@ -309,12 +336,12 @@ namespace Zettai
                 else
                 {
                     leafDepth.Add(level);
-                    leafTransforms.Add(child);
+                    transforms.Add(child);
                 }
             }
         }
 
-        public static void CheckRenderers(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckRenderers(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
             ava.GetComponentsInChildren(true, skinnedMeshRenderers);
             ava.GetComponentsInChildren(true, meshRenderers);
@@ -324,7 +351,6 @@ namespace Zettai
             ava.GetComponentsInChildren(true, canvasRenderers);
             ava.GetComponentsInChildren(true, billboardRenderers);
             ava.GetComponentsInChildren(true, spriteRenderers);
-            //ava.GetComponentsInChildren(true, renderers);
             _AvatarInfo.TrianglesOrQuads = 0;
             _AvatarInfo.lineTrailRenderers = 0;
             _AvatarInfo.skinnedMeshRenderers = 0;
@@ -336,13 +362,12 @@ namespace Zettai
             _AvatarInfo.otherRenderers = 0;
             _AvatarInfo.maxParticles = 0;
             _AvatarInfo.lineTrailRendererTriCount = 0;
-            BoneTransforms.Clear();
+            transforms.Clear();
             foreach (var item in skinnedMeshRenderers)
             {
                 _AvatarInfo.materialCount += item.sharedMaterials.Length;
                 _AvatarInfo.TrianglesOrQuads += CountMesh(item.sharedMesh);
-                //_AvatarInfo.skinnedBones += item.sharedMesh.bindposes.Length;
-                BoneTransforms.AddRange(item.bones);
+                transforms.AddRange(item.bones);
                 _AvatarInfo.skinnedMeshRenderers++;
             }
             foreach (var item in meshRenderers)
@@ -351,6 +376,7 @@ namespace Zettai
                 _AvatarInfo.TrianglesOrQuads += CountMeshRendererTris(item);
                 _AvatarInfo.meshRenderers++;
             }
+            meshFilter = null;
             foreach (var item in trailRenderers)
             {
                 _AvatarInfo.materialCount += item.sharedMaterials.Length;
@@ -388,10 +414,19 @@ namespace Zettai
                 _AvatarInfo.otherRenderers++;
                 _AvatarInfo.materialCount += item.sharedMaterials.Length;
             }
-            _AvatarInfo.skinnedBones = BoneTransforms.Count();
-            _AvatarInfo.skinnedBonesVRC = BoneTransforms.Distinct().Count();
+            _AvatarInfo.skinnedBones = transforms.Count();
+            _AvatarInfo.skinnedBonesVRC = transforms.Distinct().Count();
+            skinnedMeshRenderers.Clear();
+            meshRenderers.Clear();
+            trailRenderers.Clear();
+            lineRenderers.Clear();
+            particleSystemRenderers.Clear();
+            canvasRenderers.Clear();
+            billboardRenderers.Clear();
+            spriteRenderers.Clear();
+            transforms.Clear();
         }
-        private static int CountMesh(Mesh mesh)
+        private int CountMesh(Mesh mesh)
         {
             faceCounter = 0;
             if (mesh)
@@ -423,16 +458,7 @@ namespace Zettai
             return faceCounter;
 
         }
-        private static int CountSkinnedMeshRendererTris(SkinnedMeshRenderer renderer)
-        {
-            tempMesh = renderer.sharedMesh;
-            if (tempMesh)
-            {
-                return CountMesh(tempMesh);
-            }
-            return 0;
-        }
-        private static int CountMeshRendererTris(MeshRenderer renderer)
+        private int CountMeshRendererTris(MeshRenderer renderer)
         {
             meshFilter = renderer.gameObject.GetComponent<MeshFilter>();
             if (meshFilter)
@@ -441,7 +467,7 @@ namespace Zettai
             }
             return 0;
         }
-        private static int CountTrailRendererTris(TrailRenderer renderer)
+        private int CountTrailRendererTris(TrailRenderer renderer)
         {
             if (renderer)
             {
@@ -449,27 +475,27 @@ namespace Zettai
             }
             return 0;
         }
-        private static int CountLineRendererTris(LineRenderer renderer)
+        private int CountLineRendererTris(LineRenderer renderer)
         {
             if (renderer)
                 return renderer.positionCount * 2; // idk..
             return 0;
         }
-        public static void CheckAudio(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckAudio(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
-            audioClips = new List<AudioClip>();
-            audioSources = new List<AudioSource>();
+            audioClips.Clear();
             ava.GetComponentsInChildren(true, audioSources);
             _AvatarInfo.AudioSources = audioSources.Count;
             for (int i = 0; i < audioSources.Count; i++)
             {
-                var item = audioSources[i];
-                if (item != null && item.clip != null)
-                    audioClips.Add(item.clip);
+                audioSource = audioSources[i];
+                if (audioSource != null && audioSource.clip != null)
+                    audioClips.Add(audioSource.clip);
             }
+            audioSource = null;
             audioClips = audioClips.Distinct().ToList();
             _totalSize = 0;
-            if (ShouldLog) logMessage = "";
+            if (ShouldLog) log_output = "";
             length = 0;
             _AvatarInfo.AudioClipCount = audioClips.Count;
             for (int i = 0; i < audioClips.Count; i++)
@@ -478,19 +504,22 @@ namespace Zettai
                 _size = audioClip.samples * audioClip.channels * 2f; // 16 bit samples
                 _totalSize += _size;
                 length += audioClip.length;
-                if (ShouldLog) logMessage += (audioClip.name + ": estimated size: " + Math.Round(_size / 1024 / 1024, 2) + " MB, loadInBackground: " + audioClip.loadInBackground + ", loadType: " + audioClip.loadType + ", length: " + audioClip.length + ", channels: " + audioClip.channels + ", frequency: " + audioClip.frequency + Environment.NewLine);
+                if (ShouldLog) log_output += (audioClip.name + ": estimated size: " + Math.Round(_size / 1024 / 1024, 2) + " MB, loadInBackground: " + audioClip.loadInBackground + ", loadType: " + audioClip.loadType + ", length: " + audioClip.length + ", channels: " + audioClip.channels + ", frequency: " + audioClip.frequency + Environment.NewLine);
             }
             _AvatarInfo.AudioClipLength = (int)length;
-            AudioClipSizeMB = (Math.Round(_totalSize / 1024f / 1024f * 100f) / 100f);
             _AvatarInfo.AudioClipSizeMB = (Math.Round(_totalSize / 1024f / 1024f * 100f) / 100f);
-            if (ShouldLog) logMessage = audioClips.Count + " audio clips" + ((audioClips.Count > 0) ? (" with " + AudioClipSizeMB + " MB estimated size.") : ".") + Environment.NewLine + logMessage;
-            if (ShouldLog) _AvatarInfo.AvatarInfoString += logMessage;
-            if (ShouldLog) Debug.Log(logMessage);
+            if (ShouldLog)
+            {
+                log_output = audioClips.Count + " audio clips" + ((audioClips.Count > 0) ? (" with " + _AvatarInfo.AudioClipSizeMB + " MB estimated size.") : ".") + Environment.NewLine + log_output;
+                _AvatarInfo.AvatarInfoString += log_output;
+                Debug.Log(log_output);
+            }
+            audioClips.Clear();
+            audioSources.Clear();
         }
-
-        public static void CheckTextures(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckTextures(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
-            DateTime start = DateTime.Now;
+            if (ShouldLog) start = DateTime.Now;
             _AvatarInfo.passCount = 0;
             textures.Clear();
             shaderKeywords.Clear();
@@ -516,6 +545,7 @@ namespace Zettai
                     }
                 }
             }
+            renderers.Clear();
             _AvatarInfo.additionalShaderKeywordCount = shaderKeywords.Except(defaultKeywords).Count();
             textures = textures.Distinct().ToList();
             _AvatarInfo.textureMem = 0;
@@ -523,20 +553,20 @@ namespace Zettai
             if (ShouldLog) log_output = "";
             foreach (Texture texture in textures)
             {
-                _mem = Profiler.GetRuntimeMemorySizeLong(texture);
-                _round = Math.Round(_mem / 1024 / 1024f * 100) / 100f;
+                profiler_mem = Profiler.GetRuntimeMemorySizeLong(texture);
+                _round = Math.Round(profiler_mem / 1024 / 1024f * 100) / 100f;
                 _calc_mem = 0;
                 type = texture.GetType();
                 if (type.Equals(typeof(Texture2D)))
                 {
                     texture2D = (Texture2D)texture;
-                    _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, texture2D.mipmapCount > 1, _mem);
-                    _AvatarInfo.textureMem += _mem;
+                    _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, texture2D.mipmapCount > 1, profiler_mem);
+                    _AvatarInfo.textureMem += profiler_mem;
                     if (ShouldLog)
                     {
-                        _round = Math.Round(_mem / 1024 / 1024f * 100) / 100f;
+                        _round = Math.Round(profiler_mem / 1024 / 1024f * 100) / 100f;
                         double _calc_round = Math.Round(_calc_mem / 1024 / 1024f * 100) / 100f;
-                        string _log_output = "Texture2D object " + texture.name + " using: " + _mem + "Bytes (" + _round + " MB | " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + texture2D.format;
+                        string _log_output = "Texture2D object " + texture.name + " using: " + profiler_mem + "Bytes (" + _round + " MB | " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + texture2D.format;
                         log_output += _log_output + Environment.NewLine;
                     }
                     //Debug.Log(_log_output);
@@ -544,15 +574,15 @@ namespace Zettai
                 else
                 if (type.Equals(typeof(Cubemap)))
                 {
-                    _AvatarInfo.textureMem += _mem;
+                    _AvatarInfo.textureMem += profiler_mem;
                     cubemap = (Cubemap)texture;
-                    _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, cubemap.mipmapCount > 1, _mem) * 6);
+                    _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, cubemap.mipmapCount > 1, profiler_mem) * 6);
                     _AvatarInfo.calc_mem += _calc_mem;
 
                     if (ShouldLog)
                     {
                         double _calc_round = Math.Round(_calc_mem / 1024 / 1024f * 100) / 100f;
-                        string _log_output = "Cubemap object " + texture.name + " using: " + _mem + "Bytes (" + _round + " MB| " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + cubemap.format;
+                        string _log_output = "Cubemap object " + texture.name + " using: " + profiler_mem + "Bytes (" + _round + " MB| " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + cubemap.format;
                         log_output += _log_output + Environment.NewLine;
                     }
                     //Debug.Log(_log_output);
@@ -560,25 +590,25 @@ namespace Zettai
                 else
                 if (type.Equals(typeof(RenderTexture)))
                 {
-                    _AvatarInfo.textureMem += _mem;
-                    RenderTexture rt = (RenderTexture)texture;
-                    _calc_mem = CalculateMaxRTMemUse(rt.format, rt.width, rt.height, rt.useMipMap, _mem, rt.antiAliasing, rt.depth);
+                    _AvatarInfo.textureMem += profiler_mem;
+                    rt = (RenderTexture)texture;
+                    _calc_mem = CalculateMaxRTMemUse(rt.format, rt.width, rt.height, rt.useMipMap, profiler_mem, rt.antiAliasing, rt.depth);
                     _AvatarInfo.calc_mem += _calc_mem;
 
                     if (ShouldLog)
                     {
                         double _calc_round = Math.Round(_calc_mem / 1024 / 1024f * 100) / 100f;
-                        string _log_output = "RenderTexture object " + texture.name + " using: " + _mem + "Bytes (" + _round + " MB| " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + rt.format;
+                        string _log_output = "RenderTexture object " + texture.name + " using: " + profiler_mem + "Bytes (" + _round + " MB| " + _calc_round + " MB max), width: " + texture.width + ", height: " + texture.height + " Format: " + rt.format;
                         log_output += _log_output + Environment.NewLine;
                     }
                     //Debug.Log(_log_output);
                 }
                 else
                 {
-                    _AvatarInfo.textureMem += _mem;
+                    _AvatarInfo.textureMem += profiler_mem;
                     if (ShouldLog)
                     {
-                        string _log_output = texture.GetType() + " object " + texture.name + " using: " + _mem + "Bytes (" + _round + " MB), width: " + texture.width + ", height: " + texture.height;
+                        string _log_output = texture.GetType() + " object " + texture.name + " using: " + profiler_mem + "Bytes (" + _round + " MB), width: " + texture.width + ", height: " + texture.height;
                         log_output += _log_output + Environment.NewLine;
                     }
                     //Debug.Log(_log_output);
@@ -588,11 +618,16 @@ namespace Zettai
             if (!_AvatarInfo) { _AvatarInfo = ava.AddComponent<AvatarInfo>(); }
             _AvatarInfo.textureMemMB = Math.Round(_AvatarInfo.textureMem / 1024 / 1024f * 100) / 100f;
             _AvatarInfo.calc_memMB = Math.Round(_AvatarInfo.calc_mem / 1024 / 1024f * 100) / 100f;
-            if (ShouldLog) log_output = "Textures use " + _AvatarInfo.textureMemMB + " MBytes VRAM, calculated max: " + _AvatarInfo.calc_memMB + " MB." + Environment.NewLine + "Analysis took " + (DateTime.Now - start).TotalMilliseconds + " ms" + Environment.NewLine + log_output;
-            if (ShouldLog) _AvatarInfo.AvatarInfoString += log_output;
-            if (ShouldLog) Debug.Log(log_output);
+            if (ShouldLog)
+            {
+                log_output = "Textures use " + _AvatarInfo.textureMemMB + " MBytes VRAM, calculated max: " + _AvatarInfo.calc_memMB + " MB." + Environment.NewLine + "Analysis took " + (DateTime.Now - start).TotalMilliseconds + " ms" + Environment.NewLine + log_output;
+                _AvatarInfo.AvatarInfoString += log_output;
+                Debug.Log(log_output);
+            }
+            textures.Clear();
+            shaderKeywords.Clear();
         }
-        private static long CalculateMaxRTMemUse(RenderTextureFormat format, int width, int height, bool mipmapped, long _default, int antiAlias, int depth)
+        private long CalculateMaxRTMemUse(RenderTextureFormat format, int width, int height, bool mipmapped, long _default, int antiAlias, int depth)
         {
             _calc_mem = 0;
             switch (format)
@@ -702,7 +737,7 @@ namespace Zettai
             }
             return _calc_mem;
         }
-        private static long CalculateMaxMemUse(TextureFormat format, int width, int height, bool mipmapped, long _default)
+        private long CalculateMaxMemUse(TextureFormat format, int width, int height, bool mipmapped, long _default)
         {
             _calc_mem = 0;
             switch (format)

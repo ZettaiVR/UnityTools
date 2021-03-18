@@ -61,12 +61,12 @@ namespace Zettai
                 DateTime start = DateTime.Now;
                 avatarInfo.AvatarInfoString = "";
                 QualitySettings.anisotropicFiltering = AnisotropicFiltering.ForceEnable;
-                AvatarInfoCalc.CountObjects(avatarInfo.gameObject, ref avatarInfo);
-                AvatarInfoCalc.CheckTextures(avatarInfo.gameObject, ref avatarInfo);
-                AvatarInfoCalc.CheckAudio(avatarInfo.gameObject,ref avatarInfo);
-                AvatarInfoCalc.CheckDB(avatarInfo.gameObject, ref avatarInfo);
-                AvatarInfoCalc.CheckRenderers(avatarInfo.gameObject, ref avatarInfo);
-                AvatarInfoCalc.CheckCloth(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CountObjects(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckTextures(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckAudio(avatarInfo.gameObject,ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckDB(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckRenderers(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckCloth(avatarInfo.gameObject, ref avatarInfo);
                 avatarInfo._MillisecsTaken = (DateTime.Now - start).TotalMilliseconds.ToString();
             }
         }
