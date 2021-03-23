@@ -16,7 +16,6 @@ public class MirrorReflection : MonoBehaviour
 	public int MaxTextureSize = 2048;
 	public LayerMask m_ReflectLayers = -1;
 
-
 	private int usedTextureSize = 4096;
 	private Vector3 mirrorNormal = Vector3.zero;
 	private Camera m_ReflectionCamera;
@@ -270,16 +269,6 @@ private Transform cameraTransform;
 		m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
 		//mirrors never render the water layer, as they are on the water layer
 		m_ReflectionCamera.cullingMask = -17 & m_ReflectLayers.value;
-
-		if (MoveMirrorCam)
-		{
-			Vector3 camPosition = currentCam.transform.position;
-			m_ReflectionCamera.transform.position = m_ReflectionCamera.projectionMatrix.MultiplyPoint(camPosition);
-			Vector3 eulerAngles = currentCam.transform.eulerAngles;
-			m_ReflectionCamera.transform.eulerAngles = new Vector3(0.0f, eulerAngles.y, eulerAngles.z);
-			//m_ReflectionCamera.transform.position = camPosition;
-		}
-
 		// Render reflection
 		// Reflect camera around reflection plane
 		float d = -Vector3.Dot(normal, pos);
@@ -288,6 +277,10 @@ private Transform cameraTransform;
 		CalculateReflectionMatrix(ref worldToCameraMatrix, reflectionPlane);
 		worldToCameraMatrix = m_InversionMatrix * (!currentCam.stereoEnabled ? currentCam.worldToCameraMatrix * worldToCameraMatrix : currentCam.GetStereoViewMatrix(eye) * worldToCameraMatrix);
 		m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
+		if (MoveMirrorCam)
+		{
+			m_ReflectionCamera.transform.position = worldToCameraMatrix.inverse.MultiplyPoint(Vector3.zero);
+		}
 		// Setup oblique projection matrix so that near plane is our reflection
 		// plane. This way we clip everything below/above it for free.
 		Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, pos, normal, 1.0f);
