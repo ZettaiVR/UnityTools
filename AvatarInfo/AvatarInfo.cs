@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 using UnityEditor;
 using UnityEngine;
 
@@ -48,6 +49,73 @@ namespace Zettai
         public string LongestPath;
         public string _MillisecsTaken;
         public bool ShouldLog;
+        private void AppendLine(StringBuilder sb, string text, object value) 
+        {
+            sb.Append(text);
+            sb.Append(value);
+            sb.AppendLine();
+        }
+        public override string ToString()
+        {
+            StringBuilder sb = new StringBuilder();
+            AppendLine(sb, "textureMemMB: ", textureMemMB);
+            AppendLine(sb, "calc_memMB: ", calc_memMB);
+            AppendLine(sb, "AudioClipSizeMB: ", AudioClipSizeMB);
+            AppendLine(sb, "AudioClipCount: ", AudioClipCount);
+            AppendLine(sb, "AudioClipLength: ", AudioClipLength);
+            AppendLine(sb, "AudioSources: ", AudioSources);
+            AppendLine(sb, "TrianglesOrQuads: ", TrianglesOrQuads);
+            AppendLine(sb, "meshRenderers: ", meshRenderers);
+            AppendLine(sb, "skinnedMeshRenderers: ", skinnedMeshRenderers);
+            AppendLine(sb, "lineTrailRenderers: ", lineTrailRenderers);
+            AppendLine(sb, "lineTrailRendererTriCount: ", lineTrailRendererTriCount);
+            AppendLine(sb, "clothNumber: ", clothNumber);
+            AppendLine(sb, "clothVertCount: ", clothVertCount);
+            AppendLine(sb, "clothDiff: ", clothDiff);
+            AppendLine(sb, "dbCount: ", dbCount);
+            AppendLine(sb, "dbCollisionCount: ", dbCollisionCount);
+            AppendLine(sb, "materialCount: ", materialCount);
+            AppendLine(sb, "passCount: ", passCount);
+            AppendLine(sb, "TransformCount: ", TransformCount);
+            AppendLine(sb, "RigidBodyCount: ", RigidBodyCount);
+            AppendLine(sb, "ColliderCount: ", ColliderCount);
+            AppendLine(sb, "JointCount: ", JointCount);
+            AppendLine(sb, "ConstraintCount: ", ConstraintCount);
+            AppendLine(sb, "Animators: ", Animators);
+            AppendLine(sb, "OtherFinalIKComponents: ", OtherFinalIKComponents);
+            AppendLine(sb, "VRIKComponents: ", VRIKComponents);
+            AppendLine(sb, "TwistRelaxers: ", TwistRelaxers);
+            AppendLine(sb, "MaxHiearchyDepth: ", MaxHiearchyDepth);
+            AppendLine(sb, "Lights: ", Lights);
+            AppendLine(sb, "skinnedBonesVRC: ", skinnedBonesVRC);
+            AppendLine(sb, "skinnedBones: ", skinnedBones);
+            AppendLine(sb, "particleSystems: ", particleSystems);
+            AppendLine(sb, "maxParticles: ", maxParticles);
+            AppendLine(sb, "LongestPath: ", LongestPath);
+            if (!string.IsNullOrEmpty(AvatarInfoString))
+            {
+                sb.Append("AvatarInfoString: "); sb.Append(AvatarInfoString); sb.AppendLine();
+            }
+            int keywordcount = additionalShaderKeywords.Length;
+            if (keywordcount > 0)
+            {
+                sb.AppendLine("additionalShaderKeywords: ");
+                for (int i = 0; i < keywordcount; i++)
+                {
+                    sb.Append(additionalShaderKeywords[i]);
+                    if (i != keywordcount)
+                    {
+                        sb.AppendLine(", ");
+                    }
+                }
+                sb.AppendLine();
+            }
+            else 
+            {
+                sb.AppendLine("additionalShaderKeywords: none.");
+            }
+            return sb.ToString();
+        }
     }
     
 #if UNITY_EDITOR
@@ -56,13 +124,12 @@ namespace Zettai
     [DisallowMultipleComponent]
     public class AvatarInfo_Editor : Editor
     {
-        private System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
+        private readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
         private bool run = false;
         static readonly long nanosecPerTick = (1000L * 1000L * 1000L) / System.Diagnostics.Stopwatch.Frequency;
         public override void OnInspectorGUI()
         {
             AvatarInfo avatarInfo = (AvatarInfo)target;
-
             run = GUILayout.Button("Measure Avatar");
             DrawDefaultInspector();
             run = run || GUILayout.Button("Measure Avatar");
@@ -104,6 +171,7 @@ namespace Zettai
                 test += stopwatch.ElapsedTicks - prev + " Total: " + stopwatch.ElapsedTicks;
                 avatarInfo._MillisecsTaken = (stopwatch.ElapsedTicks * nanosecPerTick / 1000000f).ToString();
                 Debug.Log(test);
+                Debug.Log(avatarInfo);
             }
         }
     }

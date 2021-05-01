@@ -10,6 +10,22 @@ using System.Text;
 
 namespace Zettai
 {
+    public static class Extentions
+    {
+#if !NET40
+        // .NET Fw 3.5 doesn't have these
+        public static void Clear(this StringBuilder sb) 
+        {
+            sb.Remove(0, sb.Length);
+        }
+        public static void Restart(this System.Diagnostics.Stopwatch sw) 
+        {
+            sw.Stop();
+            sw.Reset();
+            sw.Start();
+        }
+#endif
+    }
     public class AvatarInfoCalc
     {
         public static AvatarInfoCalc Instance { get { return instance; } }
@@ -21,7 +37,6 @@ namespace Zettai
         static readonly FieldInfo fi = typeof(DynamicBone).GetField("m_Particles", BindingFlags.NonPublic | BindingFlags.Instance);
         static readonly MethodInfo dynBoneSetupParticlesMethod = typeof(DynamicBone).GetMethod("SetupParticles", BindingFlags.NonPublic | BindingFlags.Instance);
         readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
-        //readonly System.Diagnostics.Stopwatch stopwatch2 = new System.Diagnostics.Stopwatch();
         static readonly long nanosecPerTick = (1000L * 1000L * 1000L) / System.Diagnostics.Stopwatch.Frequency;
         readonly List<Renderer> renderers = new List<Renderer>();
         readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
@@ -65,7 +80,6 @@ namespace Zettai
         int dbCount;
         int dbCount2;
         int collCount;
-        int dbCollCount;
         int index;
         int max = 0;
         int _string_length;
@@ -80,7 +94,9 @@ namespace Zettai
         IList dbParticlesList;
         MeshFilter meshFilter;
         RenderTexture rt;
+#if UNITY_2019_1_OR_NEWER
         SubMeshDescriptor submesh;
+#endif
         Texture _tempText;
         Texture2D texture2D;
         Type type;
@@ -191,7 +207,7 @@ namespace Zettai
             {
                 clothVertCount = cloth.vertices.Length;  //GC alloc: 6-7
                 _AvatarInfo.clothVertCount += clothVertCount;
-                _AvatarInfo.clothDiff += (clothVertCount * cloth.clothSolverFrequency);
+                _AvatarInfo.clothDiff += clothVertCount * cloth.clothSolverFrequency;
                 _AvatarInfo.clothNumber++;
             }
             cloths.Clear();
@@ -208,7 +224,7 @@ namespace Zettai
                     try
                     {
                         dbParticlesList = fi.GetValue(db) as IList;
-                        if (!db.isActiveAndEnabled && (dbParticlesList == null || dbParticlesList.Count == 0))
+                        if (!db.isActiveAndEnabled || (dbParticlesList == null || dbParticlesList.Count == 0))
                         {
                             dynBoneSetupParticlesMethod.Invoke(db, new object[0]);
                             dbParticlesList = fi.GetValue(db) as IList;
@@ -216,21 +232,20 @@ namespace Zettai
                         if (dbParticlesList != null && dbParticlesList.Count > 0)
                         {
                             dbCount2 = dbParticlesList.Count;
-                            // Endbones apparently don't count?
-                            if (db.m_EndLength > 0 || db.m_EndOffset.magnitude > 0)
-                            {
-                                dbCount2--;
-                            }
+                            // Endbones apparently don't count? | or they do, I'm not sure what's going on in vrc
+                            //if (db.m_EndLength > 0 || db.m_EndOffset.magnitude > 0)
+                            //{
+                            //    dbCount2--;
+                            //}
                             dbCount += dbCount2;
                             if (db.m_Colliders != null && db.m_Colliders.Count > 0)
                             {
                                 dbColliders.UnionWith(db.m_Colliders);
                                 dbColliders.Remove(null);
-                                dbCollCount = dbColliders.Count;
 
                                 if (dbCount2 > 0)
                                 {
-                                    collCount += (Mathf.Max(dbCount2 - 1, 0) * dbCollCount);
+                                    collCount += Mathf.Max(dbCount2 - 1, 0) * db.m_Colliders.Count;
                                 }
                             }
                         }
@@ -447,14 +462,21 @@ namespace Zettai
             {
                 for (int i = 0, length = mesh.subMeshCount; i < length; i++)
                 {
+                    MeshTopology topology;
+#if UNITY_2019_1_OR_NEWER
                     submesh = mesh.GetSubMesh(i);
-                    switch (submesh.topology)
+                    topology = submesh.topology;
+#else
+                    topology = mesh.GetTopology(i);
+#endif
+                    switch (topology)
                     {
                         case MeshTopology.Lines:
                         case MeshTopology.LineStrip:
                         case MeshTopology.Points:
                             //wtf
                             { continue; }
+#if UNITY_2019_1_OR_NEWER
                         case MeshTopology.Quads:
                             {
                                 faceCounter += (submesh.indexCount / 4);
@@ -465,8 +487,19 @@ namespace Zettai
                                 faceCounter += (submesh.indexCount / 3);
                                 continue;
                             }
+#else
+                        case MeshTopology.Quads:
+                            {
+                                faceCounter += (int)(mesh.GetIndexCount(i) / 4);
+                                continue;
+                            }
+                        case MeshTopology.Triangles:
+                            {
+                                faceCounter += (int)(mesh.GetIndexCount(i) / 3);
+                                continue;
+                            }
+#endif
                     }
-
                 }
             }
             return faceCounter;
@@ -607,6 +640,7 @@ namespace Zettai
                     _AvatarInfo.textureMem += profiler_mem;
                 }
                 _calc_mem = 0;
+                bool readWriteEnabled = texture.isReadable;
                 var dim = texture.dimension;
                 type = texture.GetType();
                 switch (dim) 
@@ -616,7 +650,7 @@ namespace Zettai
                             if (type.Equals(typeof(Texture2D)))
                             {
                                 texture2D = (Texture2D)texture;
-                                _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, texture2D.mipmapCount > 1);
+                                _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, texture2D.mipmapCount > 1, readWriteEnabled);
                                 if (ShouldLog)
                                 {
                                     textureStatData.Add(new TextureStatData { type = "Texture2D", width = texture2D.width, height = texture2D.height, format = texture2D.format.ToString(), name = texture2D.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
@@ -648,7 +682,7 @@ namespace Zettai
                             if (type.Equals(typeof(Cubemap)))
                             {
                                 cubemap = (Cubemap)texture;
-                                _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, cubemap.mipmapCount > 1) * 6);
+                                _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, cubemap.mipmapCount > 1, readWriteEnabled) * 6);
                                 _AvatarInfo.calc_mem += _calc_mem;
                                 if (ShouldLog)
                                 {
@@ -660,22 +694,41 @@ namespace Zettai
                         }
                     case TextureDimension.CubeArray:
                         {
-                            var cubemapArray = (CubemapArray)texture;
-                            _calc_mem = (CalculateMaxMemUse(cubemapArray.format, cubemapArray.width, cubemapArray.height, cubemapArray.mipmapCount > 1) * 6) * cubemapArray.cubemapCount;
+                            var cubemapArray = (CubemapArray)texture; bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                            mipmapped = cubemapArray.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                            _calc_mem = (CalculateMaxMemUse(cubemapArray.format, cubemapArray.width, cubemapArray.height, mipmapped, readWriteEnabled) * 6) * cubemapArray.cubemapCount;
                             _AvatarInfo.calc_mem += _calc_mem;
                             if (ShouldLog)
                             {
-                                textureStatData.Add(new TextureStatData { type = "CubeArray"+ cubemapArray.cubemapCount, width = cubemap.width, height = cubemap.height, format = cubemap.format.ToString(), name = cubemap.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
+                                textureStatData.Add(new TextureStatData { type = "CubeArray" + cubemapArray.cubemapCount, width = cubemap.width, height = cubemap.height, format = cubemap.format.ToString(), name = cubemap.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
                             }
                             break;
                         }
                     case TextureDimension.Tex2DArray:
                         {
                             var texture2DArray = (Texture2DArray)texture;
-                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2DArray.format, texture2DArray.width, texture2DArray.height, texture2DArray.mipmapCount > 1) * texture2DArray.depth;
+                            bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                            mipmapped = texture2DArray.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2DArray.format, texture2DArray.width, texture2DArray.height, mipmapped, readWriteEnabled) * texture2DArray.depth;
                             if (ShouldLog)
                             {
-                                textureStatData.Add(new TextureStatData { type = "Tex2DArray"+ texture2DArray.depth, width = texture2DArray.width, height = texture2DArray.height, format = texture2DArray.format.ToString(), name = texture2DArray.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
+                                textureStatData.Add(new TextureStatData { type = "Tex2DArray" + texture2DArray.depth, width = texture2DArray.width, height = texture2DArray.height, format = texture2DArray.format.ToString(), name = texture2DArray.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
                             }
                             texture2D = null;
                             break;
@@ -683,7 +736,17 @@ namespace Zettai
                     case TextureDimension.Tex3D:
                         {
                             var texture3D = (Texture3D)texture;
-                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture3D.format, texture3D.width, texture3D.height, texture3D.mipmapCount > 1) * texture3D.depth;
+                            bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                            mipmapped = texture3D.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture3D.format, texture3D.width, texture3D.height, mipmapped, readWriteEnabled) * texture3D.depth;
                             if (ShouldLog)
                             {
                                 textureStatData.Add(new TextureStatData { type = "texture3D", width = texture3D.width, height = texture3D.height, format = texture3D.format.ToString(), name = texture3D.name, profiler_mem = profiler_mem, _calc_mem = _calc_mem });
@@ -723,16 +786,16 @@ namespace Zettai
             public string type;
             public long profiler_mem;
             public long _calc_mem;
+            public bool isReadable;
         }
         private string AddTextureInfoToLog(double textureMemMB, double calc_memMB, long ElapsedTicks) 
         {
-            //if (ShouldLog) stopwatch2.Restart();
             sb.Clear();
             sb.Append("Textures use ");
             sb.Append(textureMemMB);
-            sb.Append(" MBytes VRAM, calculated max: ");
+            sb.Append(" MBytes RAM + VRAM, calculated max: ");
             sb.Append(calc_memMB);
-            sb.AppendLine(" MB.");
+            sb.AppendLine(" MB VRAM.");
             sb.Append("Analysis took ");
             sb.Append(ElapsedTicks * nanosecPerTick / 1000000f);
             sb.Append(" ms (");
@@ -766,13 +829,12 @@ namespace Zettai
                     sb.Append(texture.profiler_mem);
                     sb.Append(" Bytes)");
                 }
+                if (texture.isReadable) 
+                {
+                    sb.Append(" (texture marked as readable!)");
+                }
                 sb.AppendLine();
             }
-            //if (ShouldLog)
-            //{
-            //    stopwatch2.Stop();
-            //    Debug.Log(stopwatch2.ElapsedTicks);
-            //}
             return sb.ToString();
         }
         private long CalculateMaxRTMemUse(RenderTextureFormat format, int width, int height, bool mipmapped, long _default, int antiAlias, int depth)
@@ -885,7 +947,7 @@ namespace Zettai
             }
             return _calc_mem;
         }
-        private long CalculateMaxMemUse(TextureFormat format, int width, int height, bool mipmapped)
+        private long CalculateMaxMemUse(TextureFormat format, int width, int height, bool mipmapped, bool readWriteEnabled)
         {
             _calc_mem = 0;
             switch (format)
@@ -901,7 +963,7 @@ namespace Zettai
                 case TextureFormat.PVRTC_RGB4:
                 case TextureFormat.PVRTC_RGBA4:       // 4 bit/pixel
                     {
-                        _calc_mem = (long)(width * height / 2f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / 2f);
 
                         break;
                     }
@@ -917,50 +979,62 @@ namespace Zettai
                 case TextureFormat.ETC2_RGBA8:
                 case TextureFormat.ETC2_RGBA8Crunched:  // 8 bit/pixel
                     {
-                        _calc_mem = (long)(width * height * (mipmapped ? FourThird : 1f));
+                        _calc_mem = width * height;
                         break;
                     }
                 // ASTC is using 128 bits to store n×n pixels
+#if UNITY_2019_1_OR_NEWER
                 case TextureFormat.ASTC_4x4:
                 case TextureFormat.ASTC_HDR_4x4:
+#endif
                 case TextureFormat.ASTC_RGBA_4x4:
                     {
-                        _calc_mem = (long)(width * height / (4 * 4) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (4 * 4) * 16f);
                         break;
                     }
                 case TextureFormat.ASTC_RGB_5x5:
                 case TextureFormat.ASTC_RGBA_5x5:
-                    // case TextureFormat.ASTC_HDR_5x5:
+#if UNITY_2019_1_OR_NEWER
+                case TextureFormat.ASTC_HDR_5x5:
+#endif
                     {
-                        _calc_mem = (long)(width * height / (5 * 5) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (5 * 5) * 16f);
                         break;
                     }
                 case TextureFormat.ASTC_RGB_6x6:
-                case TextureFormat.ASTC_HDR_6x6:
                 case TextureFormat.ASTC_RGBA_6x6:
+#if UNITY_2019_1_OR_NEWER
+                case TextureFormat.ASTC_HDR_6x6:
+#endif
                     {
-                        _calc_mem = (long)(width * height / (6 * 6) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (6 * 6) * 16f);
                         break;
                     }
                 case TextureFormat.ASTC_RGB_8x8:
-                case TextureFormat.ASTC_HDR_8x8:
                 case TextureFormat.ASTC_RGBA_8x8:
+#if UNITY_2019_1_OR_NEWER
+                case TextureFormat.ASTC_HDR_8x8:
+#endif
                     {
-                        _calc_mem = (long)(width * height / (8 * 8) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (8 * 8) * 16f);
                         break;
                     }
                 case TextureFormat.ASTC_RGB_10x10:
                 case TextureFormat.ASTC_RGBA_10x10:
+#if UNITY_2019_1_OR_NEWER
                 case TextureFormat.ASTC_HDR_10x10:
+#endif
                     {
-                        _calc_mem = (long)(width * height / (10 * 10) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (10 * 10) * 16f);
                         break;
                     }
                 case TextureFormat.ASTC_RGB_12x12:
-                case TextureFormat.ASTC_HDR_12x12:
                 case TextureFormat.ASTC_RGBA_12x12:
+#if UNITY_2019_1_OR_NEWER
+                case TextureFormat.ASTC_HDR_12x12:
+#endif
                     {
-                        _calc_mem = (long)(width * height / (12 * 12) * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height / (12 * 12) * 16f);
                         break;
                     }
                 case TextureFormat.ARGB4444: //2B/px
@@ -970,13 +1044,13 @@ namespace Zettai
                 case TextureFormat.RGB565:
                 case TextureFormat.RGBA4444:
                     {
-                        _calc_mem = (long)(width * height * 2f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height * 2f);
                         break;
                     }
 
                 // 3B/px
                 //   {
-                //       _calc_mem = (long)(width * height * 3f * (mipmapped ? FourThird : 1f));
+                //       _calc_mem = (long)(width * height * 3f );
                 //       break;
                 //   }
                 case TextureFormat.RGB24:
@@ -986,19 +1060,19 @@ namespace Zettai
                 case TextureFormat.RGHalf:
                 case TextureFormat.RFloat:
                     {
-                        _calc_mem = (long)(width * height * 4f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height * 4f);
                         break;
                     }
                 case TextureFormat.RGBAHalf:
                 case TextureFormat.RGFloat: //8B/px
                     {
-                        _calc_mem = (long)(width * height * 8f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height * 8f);
                         break;
                     }
 
                 case TextureFormat.RGBAFloat: //16B/px               
                     {
-                        _calc_mem = (long)(width * height * 16f * (mipmapped ? FourThird : 1f));
+                        _calc_mem = (long)(width * height * 16f);
                         break;
                     }
                 default:
@@ -1007,7 +1081,7 @@ namespace Zettai
                         break;
                     }
             }
-            return _calc_mem;
+            return (long)(_calc_mem * (readWriteEnabled ? 2 : 1) * (mipmapped ? FourThird : 1f));
         }
     }
 }
