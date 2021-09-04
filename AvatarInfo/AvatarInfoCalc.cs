@@ -83,7 +83,7 @@ namespace Zettai
         readonly StringBuilder sb = new StringBuilder();
         readonly HashSet<AudioClip> audioClips = new HashSet<AudioClip>();
         readonly HashSet<Texture> textures = new HashSet<Texture>();
-        readonly Dictionary<Texture, Dictionary<Material, List<string>>> texturesMaterials = new Dictionary<Texture, Dictionary<Material, List<string>>>();
+        readonly Dictionary<Texture, Dictionary<string, List<string>>> texturesMaterials = new Dictionary<Texture, Dictionary<string, List<string>>>();
         readonly HashSet<DynamicBoneColliderBase> dbColliders = new HashSet<DynamicBoneColliderBase>();
 
         string output = "";
@@ -773,19 +773,27 @@ namespace Zettai
                                 {
                                     continue;
                                 }
+                                string materialName = rend.name + "\\" + material.name;
                                 if (texturesMaterials.ContainsKey(texture)) 
                                 {
-                                    if (!texturesMaterials[texture].ContainsKey(material))                                    
+                                    if (!texturesMaterials[texture].ContainsKey(materialName))                                    
                                     {
-                                        texturesMaterials[texture].Add(material, new List<string>());    
+                                        texturesMaterials[texture].Add(materialName, new List<string>());    
                                     }
-                                    texturesMaterials[texture][material].Add(_name);
+                                    if (texturesMaterials[texture][materialName].Contains(_name))
+                                    {
+                                        ;
+                                    }
+                                    else
+                                    {
+                                        texturesMaterials[texture][materialName].Add(_name);
+                                    }
                                 }
                                 else 
                                 {
-                                    texturesMaterials.Add(texture, new Dictionary<Material, List<string>>());
-                                    texturesMaterials[texture].Add(material, new List<string>());
-                                    texturesMaterials[texture][material].Add(_name);
+                                    texturesMaterials.Add(texture, new Dictionary<string, List<string>>());
+                                    texturesMaterials[texture].Add(materialName, new List<string>());
+                                    texturesMaterials[texture][materialName].Add(_name);
                                 }
                             }
                         }
@@ -822,14 +830,14 @@ namespace Zettai
                 sb.Clear();
                 if (ShouldLog) 
                 {
-                    if (texturesMaterials.TryGetValue(texture, out Dictionary<Material, List<string>> materials))
+                    if (texturesMaterials.TryGetValue(texture, out Dictionary<string, List<string>> materials))
                     {
                         if (materials.Count > 0)
                         {
                             var material = materials.Keys.ToArray();
                             for (int i = 0; i < material.Length; i++)
                             {
-                                sb.Append(material[i].name);
+                                sb.Append(material[i]);
                                 if (materials[material[i]].Count > 0) 
                                 {
                                     sb.Append(" (");
