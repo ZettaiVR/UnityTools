@@ -185,13 +185,13 @@ namespace Zettai
 "VIGNETTE_CLASSIC",
 "VIGNETTE_MASKED"
         });
-        public string GetBytesReadable(long i) 
+        public static string GetBytesReadable(long i) 
         {
             if (i <= 0)
                 return "0 B ";
             return GetBytesReadable((ulong)i);
         }
-        public string GetBytesReadable(ulong i)
+        public static string GetBytesReadable(ulong i)
         {
             if (i <= 0)
                 return "0 B ";
@@ -228,7 +228,46 @@ namespace Zettai
                 return readable.ToString("0.## ", CultureInfo.InvariantCulture) + suffix;
             return readable.ToString("0.## ", CultureInfo.InvariantCulture) + suffix;
         }
-
+        private static void AppendLine(StringBuilder sb, string text, object value)
+        {
+            sb.Append(text);
+            sb.Append(value);
+            sb.AppendLine();
+        }
+        public static string ShortStats(GameObject target)
+        {
+            AvatarInfo avatarInfo = new AvatarInfo();
+            Instance.ShouldLog = false;
+            Instance.CountObjects(target, ref avatarInfo);
+            Instance.CheckAudio(target, ref avatarInfo);
+            Instance.CheckDB(target, ref avatarInfo);
+            Instance.CheckRenderers(target, ref avatarInfo);
+            Instance.CheckTextures(target, ref avatarInfo);
+            Instance.CheckCloth(target, ref avatarInfo);
+            StringBuilder sb = new StringBuilder();
+            AppendLine(sb, "VRAM usage: ", GetBytesReadable(avatarInfo.VRAM));
+            AppendLine(sb, "AudioClips: ", GetBytesReadable(avatarInfo.AudioClipSize));
+            AppendLine(sb, "AudioClip Count: ", avatarInfo.AudioClipCount);
+            AppendLine(sb, "AudioClip Length [sec]: ", avatarInfo.AudioClipLength);
+            AppendLine(sb, "AudioSources: ", avatarInfo.AudioSources);
+            AppendLine(sb, "Triangles or quads: ", avatarInfo.TrianglesOrQuads);
+            AppendLine(sb, "Mesh renderers: ", avatarInfo.meshRenderers);
+            AppendLine(sb, "Skinned mesh renderers: ", avatarInfo.skinnedMeshRenderers);
+            AppendLine(sb, "Line or trail renderers: ", avatarInfo.lineTrailRenderers);
+            AppendLine(sb, "Cloths: ", avatarInfo.clothNumber);
+            AppendLine(sb, "Cloth vert count: ", avatarInfo.clothVertCount);
+            AppendLine(sb, "Dynamic Bone transform count: ", avatarInfo.dbCount);
+            AppendLine(sb, "Dynamic Bone collision count: ", avatarInfo.dbCollisionCount);
+            AppendLine(sb, "Material count: ", avatarInfo.materialCount);
+            AppendLine(sb, "RigidBody count: ", avatarInfo.RigidBodyCount);
+            AppendLine(sb, "Collider count: ", avatarInfo.ColliderCount);
+            AppendLine(sb, "Joint count: ", avatarInfo.JointCount);
+            AppendLine(sb, "Constraint count: ", avatarInfo.ConstraintCount);
+            AppendLine(sb, "Lights: ", avatarInfo.Lights);
+            AppendLine(sb, "Skinned bones (VRC): ", avatarInfo.skinnedBonesVRC);
+            AppendLine(sb, "Additional shader keywords: ", avatarInfo.additionalShaderKeywords.Length);
+            return sb.ToString();
+        }
         public void CheckCloth(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
             _AvatarInfo.clothNumber = 0;
