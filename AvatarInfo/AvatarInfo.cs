@@ -46,14 +46,65 @@ namespace Zettai
         public int otherRenderers;
         public int additionalShaderKeywordCount;
         public string[] additionalShaderKeywords;
+        public string[] shaderNames;
+        public string[] materialNames;
         public string LongestPath;
         public string _MillisecsTaken;
         public bool ShouldLog;
+        public long AudioClipSize { get; set; }
+        public ulong VRAM { get; set; }
+
+        public MaterialInfo[] materialInfo { get; set; }
+        public class MaterialInfo 
+        {
+            public Material material { get; set; }
+            public string name { get; set; }
+            public string shaderName { get; set; }
+            public uint shaderPassCount { get; set; }
+            public uint renderQueue { get; set; }
+            public override bool Equals(object obj)
+            {
+                if (obj.GetType().Equals(typeof(MaterialInfo))  && material != null && ((MaterialInfo)obj).material != null)
+                {
+                    return material.Equals(((MaterialInfo)obj).material);
+                }
+                return base.Equals(obj);
+            }
+            public override int GetHashCode()
+            {
+                return material.GetHashCode();
+            }
+            public override string ToString()
+            {
+                return name + ": shaderName: " + shaderName + ", shaderPassCount: " + shaderPassCount + ", renderQueue: " + renderQueue;
+            }
+        }
         private void AppendLine(StringBuilder sb, string text, object value) 
         {
             sb.Append(text);
             sb.Append(value);
             sb.AppendLine();
+        }
+        private void AppendArray(StringBuilder sb, string[] text, string name) 
+        {
+            int keywordcount = text.Length;
+            if (keywordcount > 0)
+            {
+                sb.AppendLine(name + ": ");
+                for (int i = 0; i < keywordcount; i++)
+                {
+                    sb.Append(text[i]);
+                    if (i != keywordcount)
+                    {
+                        sb.AppendLine(", ");
+                    }
+                }
+                sb.AppendLine();
+            }
+            else
+            {
+                sb.AppendLine(name + ": none.");
+            }
         }
         public override string ToString()
         {
@@ -96,24 +147,9 @@ namespace Zettai
             {
                 sb.Append("AvatarInfoString: "); sb.Append(AvatarInfoString); sb.AppendLine();
             }
-            int keywordcount = additionalShaderKeywords.Length;
-            if (keywordcount > 0)
-            {
-                sb.AppendLine("additionalShaderKeywords: ");
-                for (int i = 0; i < keywordcount; i++)
-                {
-                    sb.Append(additionalShaderKeywords[i]);
-                    if (i != keywordcount)
-                    {
-                        sb.AppendLine(", ");
-                    }
-                }
-                sb.AppendLine();
-            }
-            else 
-            {
-                sb.AppendLine("additionalShaderKeywords: none.");
-            }
+            AppendArray(sb, additionalShaderKeywords, "additionalShaderKeywords");
+            AppendArray(sb, shaderNames, "shaderNames");
+            AppendArray(sb, materialNames, "materialNames");
             return sb.ToString();
         }
     }
