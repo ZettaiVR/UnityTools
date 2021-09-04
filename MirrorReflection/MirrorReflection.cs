@@ -332,7 +332,7 @@ private Transform cameraTransform;
 	}
     private void OnDestroy()
     {
-		if (s_MirrorMaterials != null)
+		if (s_MirrorMaterials != null && m_Renderer)
 		{
 			Material[] sharedMaterials = m_Renderer.sharedMaterials;
 			for (int i = 0; i < sharedMaterials.Length; i++)
