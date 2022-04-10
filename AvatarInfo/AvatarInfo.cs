@@ -16,15 +16,17 @@ namespace Zettai
         public int AudioClipCount;
         public int AudioClipLength;
         public int AudioSources;
-        public int TrianglesOrQuads;
+        public int FaceCount;
         public int meshRenderers;
         public int skinnedMeshRenderers;
         public int lineTrailRenderers;
-        public int lineTrailRendererTriCount;
+        public ulong lineTrailRendererTriCount;
         public int clothNumber;
         public int clothVertCount;
         public float clothDiff;
-        public int dbCount;
+        public int dbScriptCount;
+        public int dbParticleCount;
+        public int dbTransformCount;
         public int dbCollisionCount;
         public int materialCount;
         public int passCount;
@@ -115,7 +117,7 @@ namespace Zettai
             AppendLine(sb, "AudioClipCount: ", AudioClipCount);
             AppendLine(sb, "AudioClipLength: ", AudioClipLength);
             AppendLine(sb, "AudioSources: ", AudioSources);
-            AppendLine(sb, "TrianglesOrQuads: ", TrianglesOrQuads);
+            AppendLine(sb, "TrianglesOrQuads: ", FaceCount);
             AppendLine(sb, "meshRenderers: ", meshRenderers);
             AppendLine(sb, "skinnedMeshRenderers: ", skinnedMeshRenderers);
             AppendLine(sb, "lineTrailRenderers: ", lineTrailRenderers);
@@ -123,7 +125,7 @@ namespace Zettai
             AppendLine(sb, "clothNumber: ", clothNumber);
             AppendLine(sb, "clothVertCount: ", clothVertCount);
             AppendLine(sb, "clothDiff: ", clothDiff);
-            AppendLine(sb, "dbCount: ", dbCount);
+            AppendLine(sb, "dbCount: ", dbParticleCount);
             AppendLine(sb, "dbCollisionCount: ", dbCollisionCount);
             AppendLine(sb, "materialCount: ", materialCount);
             AppendLine(sb, "passCount: ", passCount);
@@ -192,7 +194,7 @@ namespace Zettai
                 test += stopwatch.ElapsedTicks - prev + " CheckDB: ";
                 prev = stopwatch.ElapsedTicks;
                 stopwatch.Start();
-                AvatarInfoCalc.Instance.CheckDB(avatarInfo.gameObject, ref avatarInfo);
+                AvatarInfoCalc.Instance.CheckDB(avatarInfo.gameObject, ref avatarInfo, false);
                 stopwatch.Stop();
                 test += stopwatch.ElapsedTicks - prev + " CheckRenderers: ";
                 prev = stopwatch.ElapsedTicks;

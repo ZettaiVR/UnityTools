@@ -28,6 +28,8 @@ namespace Zettai
         }
 #endif
     }
+#pragma warning disable 612, 618
+  //  [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "CS0618'")]
     public class AvatarInfoCalc
     {
         public static AvatarInfoCalc Instance { get { return instance; } }
@@ -38,18 +40,16 @@ namespace Zettai
         private readonly HashSet<AvatarInfo.MaterialInfo> AllMaterialInfo = new HashSet<AvatarInfo.MaterialInfo>();
         internal static readonly AvatarInfoCalc instance = new AvatarInfoCalc();
         public bool ShouldLog = true;
-        private const float FourThird = (4f / 3f);
+        private const float FourThirds = (4f / 3f);
         readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
         static readonly long nanosecPerTick = (1000L * 1000L * 1000L) / System.Diagnostics.Stopwatch.Frequency;
         readonly List<Renderer> renderers = new List<Renderer>();
-        readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
-        readonly List<MeshRenderer> meshRenderers = new List<MeshRenderer>();
-        readonly List<TrailRenderer> trailRenderers = new List<TrailRenderer>();
-        readonly List<LineRenderer> lineRenderers = new List<LineRenderer>();
-        readonly List<ParticleSystemRenderer> particleSystemRenderers = new List<ParticleSystemRenderer>();
         readonly List<CanvasRenderer> canvasRenderers = new List<CanvasRenderer>();
-        readonly List<BillboardRenderer>  billboardRenderers = new List<BillboardRenderer>();
-        readonly List<SpriteRenderer> spriteRenderers = new List<SpriteRenderer>();
+        private static readonly Dictionary<string, List<string>> ShaderTexturePropertyNames = new Dictionary<string, List<string>>();
+        private static readonly Dictionary<Shader, string> ShaderStats = new Dictionary<Shader, string>();
+        private static List<int> outNames = new List<int>();
+        private static readonly Dictionary<int, string> TexturePropertyNameIDs = new Dictionary<int, string>();
+        private static readonly HashSet<string> shaderPasses = new HashSet<string>();
 
         readonly List<Animator> animators = new List<Animator>();
         readonly List<AudioSource> audioSources = new List<AudioSource>();
@@ -67,26 +67,33 @@ namespace Zettai
         //Dynamic Bone
         readonly List<DynamicBone> dynamicBones = new List<DynamicBone>();
         static readonly FieldInfo fi = typeof(DynamicBone).GetField("m_Particles", BindingFlags.NonPublic | BindingFlags.Instance);
-        //static readonly FieldInfo particleCount_fi = typeof(DynamicBone).GetField("particleCount", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
-        //static readonly FieldInfo colliderCount_fi = typeof(DynamicBone).GetField("colliderCount", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        static readonly FieldInfo particleCount_fi = typeof(DynamicBone).GetField("particleCount", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        static readonly FieldInfo colliderCount_fi = typeof(DynamicBone).GetField("colliderCount", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
         static readonly FieldInfo transformCount_fi = typeof(DynamicBone).GetField("transformCount", BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly);
         static readonly MethodInfo dynBoneSetupParticlesMethod = typeof(DynamicBone).GetMethod("SetupParticles", BindingFlags.NonPublic | BindingFlags.Instance);
 
         // Final IK 
         readonly List<RootMotion.FinalIK.VRIK> VRIKs = new List<RootMotion.FinalIK.VRIK>();
         readonly List<RootMotion.FinalIK.IK> IKs = new List<RootMotion.FinalIK.IK>();
-        readonly List<RootMotion.FinalIK.TwistRelaxer> twistRelaxers = new List<RootMotion.FinalIK.TwistRelaxer>();
 
-        readonly List<string> texturePropertyNames = new List<string>();
+        readonly List<RootMotion.FinalIK.ShoulderRotator>   ShoulderRotators        = new List<RootMotion.FinalIK.ShoulderRotator>();
+        List<RootMotion.FinalIK.FBBIKArmBending>            armBends                = new List<RootMotion.FinalIK.FBBIKArmBending>();
+        List<RootMotion.FinalIK.Grounder>                   grounders               = new List<RootMotion.FinalIK.Grounder>();
+        readonly List<RootMotion.FinalIK.RotationLimit>     RotationLimits          = new List<RootMotion.FinalIK.RotationLimit>();
+        readonly List<RootMotion.FinalIK.IKExecutionOrder>  ExecOrders              = new List<RootMotion.FinalIK.IKExecutionOrder>();
+        readonly List<RootMotion.FinalIK.FBBIKHeadEffector> HeadEffectors           = new List<RootMotion.FinalIK.FBBIKHeadEffector>();
+        readonly List<RootMotion.FinalIK.TwistRelaxer> twistRelaxers                = new List<RootMotion.FinalIK.TwistRelaxer>();
+
+        List<string> texturePropertyNames = new List<string>();
         readonly HashSet<string> shaderKeywords = new HashSet<string>();
         readonly List<int> leafDepth = new List<int>();
         readonly StringBuilder sb = new StringBuilder();
+        static readonly StringBuilder staticSB = new StringBuilder();
         readonly HashSet<AudioClip> audioClips = new HashSet<AudioClip>();
         readonly HashSet<Texture> textures = new HashSet<Texture>();
         readonly Dictionary<Texture, Dictionary<string, List<string>>> texturesMaterials = new Dictionary<Texture, Dictionary<string, List<string>>>();
         readonly HashSet<DynamicBoneColliderBase> dbColliders = new HashSet<DynamicBoneColliderBase>();
 
-        string output = "";
         string log_output;
 
         public struct AudioStatData
@@ -191,26 +198,41 @@ namespace Zettai
                 return "0 B ";
             return GetBytesReadable((ulong)i);
         }
+        private static string[] intNames = new string[]
+        {
+            "0","1","2","3","4","5","6","7","8","9",
+            "10","11","12","13","14","15","16","17","18","19",
+            "20","21","22","23","24","25","26","27","28","29","30"
+        };
+        public static string SmallIntToString(int i) 
+        {
+            if (i >= 0 && i <= 30) 
+            {
+                return intNames[i];
+            }
+            return i.ToString();
+        }
         public static string GetBytesReadable(ulong i)
         {
             if (i <= 0)
                 return "0 B ";
             if (i < 1024)
                 return i + " B ";
-            ulong absolute_i = i;
             string suffix;
-            double readable;
-            if (absolute_i >= 0x40000000)
+            float readable;
+            if (i >= 0x40000000)
             {
                 suffix = "GB";
                 readable = (i >> 20);
+                i = (i >> 20);
             }
-            else if (absolute_i >= 0x100000) 
+            else if (i >= 0x100000) 
             {
                 suffix = "MB";
                 readable = (i >> 10);
+                i = i >> 10;
             }
-            else if (absolute_i >= 0x400)
+            else if (i >= 0x400)
             {
                 suffix = "kB";
                 readable = i;
@@ -219,6 +241,10 @@ namespace Zettai
             {
                 return i.ToString("0 B", CultureInfo.InvariantCulture);
             }
+            ulong t = (i & 0x3FF) * 1000 / 1024;
+            i = i >> 10;
+           
+
             readable /= 1024;
             if (readable >= 1000)
                 return readable.ToString("0.# ", CultureInfo.InvariantCulture) + suffix;
@@ -228,45 +254,22 @@ namespace Zettai
                 return readable.ToString("0.## ", CultureInfo.InvariantCulture) + suffix;
             return readable.ToString("0.## ", CultureInfo.InvariantCulture) + suffix;
         }
+
+        private static ulong TrimRemainder(ulong t, int shift) 
+        {
+            if (t > 1000)
+                return t >> (shift - 1);
+            if (t > 100)
+                return t >> (shift);
+            if (t > 10)
+                return t >> (shift + 1);
+            return t;
+        }
         private static void AppendLine(StringBuilder sb, string text, object value)
         {
             sb.Append(text);
             sb.Append(value);
             sb.AppendLine();
-        }
-        public static string ShortStats(GameObject target)
-        {
-            AvatarInfo avatarInfo = new AvatarInfo();
-            Instance.ShouldLog = false;
-            Instance.CountObjects(target, ref avatarInfo);
-            Instance.CheckAudio(target, ref avatarInfo);
-            Instance.CheckDB(target, ref avatarInfo);
-            Instance.CheckRenderers(target, ref avatarInfo);
-            Instance.CheckTextures(target, ref avatarInfo);
-            Instance.CheckCloth(target, ref avatarInfo);
-            StringBuilder sb = new StringBuilder();
-            AppendLine(sb, "VRAM usage: ", GetBytesReadable(avatarInfo.VRAM));
-            AppendLine(sb, "AudioClips: ", GetBytesReadable(avatarInfo.AudioClipSize));
-            AppendLine(sb, "AudioClip Count: ", avatarInfo.AudioClipCount);
-            AppendLine(sb, "AudioClip Length [sec]: ", avatarInfo.AudioClipLength);
-            AppendLine(sb, "AudioSources: ", avatarInfo.AudioSources);
-            AppendLine(sb, "Triangles or quads: ", avatarInfo.TrianglesOrQuads);
-            AppendLine(sb, "Mesh renderers: ", avatarInfo.meshRenderers);
-            AppendLine(sb, "Skinned mesh renderers: ", avatarInfo.skinnedMeshRenderers);
-            AppendLine(sb, "Line or trail renderers: ", avatarInfo.lineTrailRenderers);
-            AppendLine(sb, "Cloths: ", avatarInfo.clothNumber);
-            AppendLine(sb, "Cloth vert count: ", avatarInfo.clothVertCount);
-            AppendLine(sb, "Dynamic Bone transform count: ", avatarInfo.dbCount);
-            AppendLine(sb, "Dynamic Bone collision count: ", avatarInfo.dbCollisionCount);
-            AppendLine(sb, "Material count: ", avatarInfo.materialCount);
-            AppendLine(sb, "RigidBody count: ", avatarInfo.RigidBodyCount);
-            AppendLine(sb, "Collider count: ", avatarInfo.ColliderCount);
-            AppendLine(sb, "Joint count: ", avatarInfo.JointCount);
-            AppendLine(sb, "Constraint count: ", avatarInfo.ConstraintCount);
-            AppendLine(sb, "Lights: ", avatarInfo.Lights);
-            AppendLine(sb, "Skinned bones (VRC): ", avatarInfo.skinnedBonesVRC);
-            AppendLine(sb, "Additional shader keywords: ", avatarInfo.additionalShaderKeywords.Length);
-            return sb.ToString();
         }
         public void CheckCloth(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
@@ -283,109 +286,100 @@ namespace Zettai
             }
             cloths.Clear();
         }
-        public void CheckDB(GameObject ava, ref AvatarInfo _AvatarInfo)
+        public void CheckDB(GameObject ava, ref AvatarInfo _AvatarInfo, bool initDb)
         {
             int dbCount = 0;
             int collCount = 0;
+            int totalTransformCount = 0;
             ava.GetComponentsInChildren(true, dynamicBones);
+            _AvatarInfo.dbScriptCount = dynamicBones.Count;
+            bool fieldInfoExists = transformCount_fi != null;
             foreach (DynamicBone db in dynamicBones)
             {
-                if (db)
+                if (!db)
+                    continue;
+                try
                 {
-                    try
-                    {
-                        // my db script?
-                        int particleCount = 0;
-                      //  int colliderCount = 0;
-                        int transformCount = 0;
-                        bool flag = true;
-                        try
-                        {
-                            //       particleCount = (int)particleCount_fi.GetValue(db);
-                            //       colliderCount = (int)colliderCount_fi.GetValue(db);
-                            if (transformCount_fi != null)
-                            {
-                                transformCount = (int)transformCount_fi.GetValue(db);
-                            }
-                            flag = false;
-                        }
-                        catch (System.Exception e)
-                        { // normal DB then
-                            Debug.LogError(e);
-                        }
-                        if (flag)
-                        {
-                            IList dbParticlesList = fi.GetValue(db) as IList;
-                            if (dbParticlesList == null || dbParticlesList.Count == 0)
-                            {
-                                dynBoneSetupParticlesMethod.Invoke(db, new object[0]);
-                                dbParticlesList = fi.GetValue(db) as IList;
-                            }
-                            int endbones = 0;
-                            foreach (object item in dbParticlesList)
-                            {
-                                Type type = item.GetType();
-                                Transform transform = (Transform)type.GetField("m_Transform", BindingFlags.Public | BindingFlags.Instance).GetValue(item);
-                                // endbones don't have a corresponding transform
-                                if (transform == null)
-                                {
-                                    endbones++;
-                                }
-                            }
-                            if (dbParticlesList != null && dbParticlesList.Count > 0)
-                            {
-                                int dbCollidingTransformCount = dbParticlesList.Count;
-                                dbCount += dbCollidingTransformCount;
-                                if (db.m_Colliders != null && db.m_Colliders.Count > 0)
-                                {
-                                    var m_Colliders = db.m_Colliders.ToList();
-                                    m_Colliders.Remove(null);
-                                    dbColliders.UnionWith(m_Colliders);
-                                    dbColliders.Remove(null);
-                                    // Endbones apparently don't count as colliders?
-                                    dbCollidingTransformCount -= endbones;
-                                    if (dbCollidingTransformCount > 0)
-                                    {
-                                        //                                  Root doesn't count as collider either
-                                        collCount += (Mathf.Max(dbCollidingTransformCount - 1, 0) * db.m_Colliders.Count);
-                                    }
-                                }
-                            }
-                        }
-                        else 
-                        {
-                            IList dbParticlesList = fi.GetValue(db) as IList;
-                            if (dbParticlesList == null || dbParticlesList.Count == 0)
-                            {
-                                dynBoneSetupParticlesMethod.Invoke(db, new object[0]);
-                                dbParticlesList = fi.GetValue(db) as IList;
-                            }
-                            particleCount = dbParticlesList.Count;
-                            if (db.m_Colliders != null && db.m_Colliders.Count > 0)
-                            {
-                                var m_Colliders = db.m_Colliders.ToList();
-                                m_Colliders.Remove(null);
-                                dbColliders.UnionWith(m_Colliders);
-                                // Endbones apparently don't count as colliders?
-                                if (transformCount > 0)
-                                {
-                                    //                                  Root doesn't count as collider either
-                                    collCount += (Mathf.Max(transformCount - 1, 0) * m_Colliders.Count);
-                                }
-                            }
-                            dbCount += particleCount;
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.LogError(e);
-                    }
+                    dbColliders.Clear();
+                    if (fieldInfoExists)
+                        CountDbWithFieldInfo(initDb, ref dbCount, ref collCount, ref totalTransformCount, db);
+                    else
+                        CountDbWithoutFieldInfo(initDb, ref dbCount, ref collCount, ref totalTransformCount, db);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError(e);
                 }
             }
             dynamicBones.Clear();
             dbColliders.Clear();
-            _AvatarInfo.dbCount = dbCount;
+            _AvatarInfo.dbTransformCount = totalTransformCount;
+            _AvatarInfo.dbParticleCount = dbCount;
             _AvatarInfo.dbCollisionCount = collCount;
+        }
+
+        private void CountDbWithoutFieldInfo(bool initDb, ref int dbCount, ref int collCount, ref int totalTransformCount, DynamicBone db)
+        {
+            var dbParticlesList = fi.GetValue(db) as IList;
+            if (dbParticlesList == null || dbParticlesList.Count == 0)
+            {
+                if (!initDb)
+                    return;
+                dbParticlesList = InitDb(db);
+            }
+            if (dbParticlesList == null || dbParticlesList.Count <= 0)
+                return;
+            int endbones = 0;
+            int transformCount = 0;
+            foreach (object item in dbParticlesList)
+            {
+                var type = item.GetType();
+                var transform = (Transform)type.GetField("m_Transform", BindingFlags.Public | BindingFlags.Instance).GetValue(item);
+                // endbones don't have a corresponding transform
+                if (transform == null)
+                    endbones++;
+                else
+                    transformCount++;
+            }
+            totalTransformCount += transformCount;
+
+            dbCount += dbParticlesList.Count;
+            if (db.m_Colliders == null || db.m_Colliders.Count <= 0)
+                return;
+
+            dbColliders.UnionWith(db.m_Colliders);
+            dbColliders.RemoveWhere(a => a == null);
+            // Endbones apparently don't count in collision checks?
+            if (transformCount <= 0)
+                return;
+            //                                  Root doesn't count as collider either
+            collCount += (Mathf.Max(transformCount - 1, 0) * dbColliders.Count);
+        }
+
+        private void CountDbWithFieldInfo(bool initDb, ref int dbCount, ref int collCount, ref int totalTransformCount, DynamicBone db)
+        {
+            int transformCount = (int)transformCount_fi.GetValue(db);
+            totalTransformCount += transformCount;
+            var dbParticlesList = fi.GetValue(db) as IList;
+            if (dbParticlesList == null || dbParticlesList.Count == 0)
+            {
+                if (!initDb)
+                    return;
+                dbParticlesList = InitDb(db);
+            }
+            dbCount += (int)dbParticlesList?.Count;
+            if (db.m_Colliders == null || db.m_Colliders.Count <= 0)
+                return;
+            dbColliders.UnionWith(db.m_Colliders);
+            dbColliders.RemoveWhere(a => a == null);
+            if (transformCount > 0) // Endbones apparently don't count as colliders?
+                collCount += (Mathf.Max(transformCount - 1, 0) * dbColliders.Count); // Root doesn't count as collider either
+        }
+
+        private static IList InitDb(DynamicBone db)
+        {
+            dynBoneSetupParticlesMethod.Invoke(db, new object[0]);
+            return fi.GetValue(db) as IList;
         }
 
         public void CountObjects(GameObject gameObject, ref AvatarInfo avatarInfo)
@@ -402,8 +396,16 @@ namespace Zettai
             gameObject.GetComponentsInChildren(true, VRIKs);
             gameObject.GetComponentsInChildren(true, IKs);
             gameObject.GetComponentsInChildren(true, twistRelaxers);
+            gameObject.GetComponentsInChildren(true, ShoulderRotators);
+            gameObject.GetComponentsInChildren(true, armBends        );
+            gameObject.GetComponentsInChildren(true, grounders       );
+            gameObject.GetComponentsInChildren(true, RotationLimits  );
+            gameObject.GetComponentsInChildren(true, ExecOrders      );
+            gameObject.GetComponentsInChildren(true, HeadEffectors);
+
             avatarInfo.VRIKComponents = VRIKs.Count;
-            avatarInfo.OtherFinalIKComponents = IKs.Count - avatarInfo.VRIKComponents;
+            avatarInfo.OtherFinalIKComponents = IKs.Count - avatarInfo.VRIKComponents + twistRelaxers.Count + ShoulderRotators.Count +
+                armBends.Count + grounders.Count + RotationLimits.Count + ExecOrders.Count + HeadEffectors.Count;
             avatarInfo.TwistRelaxers = twistRelaxers.Count;
 
             avatarInfo.TransformCount = transforms.Count;
@@ -456,18 +458,29 @@ namespace Zettai
         }
         private string LeavesToString()
         {
-            output = "";
+            //output = "";
+            sb.Clear();
             for (int i = 0, length = leafDepth.Count; i < length; i++)
             {
-                output += $"{transforms[i].name} ({leafDepth[i]})\r\n";
+                sb.Append(transforms[i].name);
+                sb.Append(" (");
+                sb.Append(SmallIntToString(leafDepth[i]));
+                sb.AppendLine(")");
+              //  output += $"{transforms[i].name} ({leafDepth[i]})\r\n";
             }
-            return output;
+            return sb.ToString();
         }
         private string GetLeafPath(int index)
         {
-            if (transforms.Count == 0 || transforms.Count < index) { return ""; }
+            if (transforms.Count == 0 || transforms.Count < index) 
+            {
+                return ""; 
+            }
             transforms[index].GetComponentsInParent(true, tempTransforms);
-            if (tempTransforms.Count == 0) { return ""; }
+            if (tempTransforms.Count == 0) 
+            {
+                return "";
+            }
             sb.Clear();
             sb.Append(tempTransforms[tempTransforms.Count - 1].name);
             for (int i = tempTransforms.Count - 2; i >= 0 ; i--)
@@ -503,15 +516,7 @@ namespace Zettai
         }
         public void CheckRenderers(GameObject ava, ref AvatarInfo _AvatarInfo)
         {
-            ava.GetComponentsInChildren(true, skinnedMeshRenderers);
-            ava.GetComponentsInChildren(true, meshRenderers);
-            ava.GetComponentsInChildren(true, trailRenderers);
-            ava.GetComponentsInChildren(true, lineRenderers);
-            ava.GetComponentsInChildren(true, particleSystemRenderers);
-            ava.GetComponentsInChildren(true, canvasRenderers);
-            ava.GetComponentsInChildren(true, billboardRenderers);
-            ava.GetComponentsInChildren(true, spriteRenderers);
-            _AvatarInfo.TrianglesOrQuads = 0;
+            _AvatarInfo.FaceCount = 0;
             _AvatarInfo.lineTrailRenderers = 0;
             _AvatarInfo.skinnedMeshRenderers = 0;
             _AvatarInfo.meshRenderers = 0;
@@ -523,67 +528,76 @@ namespace Zettai
             _AvatarInfo.maxParticles = 0;
             _AvatarInfo.lineTrailRendererTriCount = 0;
             transforms.Clear();
-            foreach (var item in skinnedMeshRenderers)
+            renderers.Clear();
+            ava.GetComponentsInChildren(true, renderers);
+            for (int i = 0; i < renderers.Count; i++)
             {
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-                _AvatarInfo.TrianglesOrQuads += CountMesh(item.sharedMesh);
-                transforms.AddRange(item.bones);
-                _AvatarInfo.skinnedMeshRenderers++;
-            }
-            foreach (var item in meshRenderers)
-            {
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-                _AvatarInfo.TrianglesOrQuads += CountMeshRendererTris(item);
-                _AvatarInfo.meshRenderers++;
-            }
-            foreach (var item in trailRenderers)
-            {
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-                _AvatarInfo.lineTrailRendererTriCount += CountTrailRendererTris(item);
-                _AvatarInfo.lineTrailRenderers++;
-            }
-            foreach (var item in lineRenderers)
-            {
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-                _AvatarInfo.lineTrailRendererTriCount += CountLineRendererTris(item);
-                _AvatarInfo.lineTrailRenderers++;
-            }
-            foreach (var item in particleSystemRenderers)
-            {
-                _AvatarInfo.particleSystems++;
-                ParticleSystem particleSystem = item.GetComponent<ParticleSystem>();
-                if (particleSystem) 
+                Renderer renderer = renderers[i];
+
+                _AvatarInfo.materialCount += renderer.sharedMaterials.Length;
+                if (renderer is SkinnedMeshRenderer)
                 {
-                    _AvatarInfo.maxParticles += particleSystem.main.maxParticles;
+                    SkinnedMeshRenderer skinnedMeshRenderer = renderer as SkinnedMeshRenderer;
+                    _AvatarInfo.FaceCount += CountMesh(skinnedMeshRenderer.sharedMesh);
+                    transforms.AddRange(skinnedMeshRenderer.bones);
+                    _AvatarInfo.skinnedMeshRenderers++;
                 }
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
+                else if (renderer is MeshRenderer)
+                {
+                    _AvatarInfo.FaceCount += CountMeshRendererTris(renderer as MeshRenderer);
+                    _AvatarInfo.meshRenderers++;
+                }
+                else if (renderer is TrailRenderer)
+                {
+                    _AvatarInfo.lineTrailRendererTriCount += CountTrailRendererTris(renderer as TrailRenderer);
+                    _AvatarInfo.lineTrailRenderers++;
+                }
+                else if (renderer is LineRenderer)
+                {
+                    _AvatarInfo.lineTrailRendererTriCount += CountLineRendererTris(renderer as LineRenderer);
+                    _AvatarInfo.lineTrailRenderers++;
+                }
+                else if (renderer is ParticleSystemRenderer)
+                {
+                    _AvatarInfo.particleSystems++;
+                    ParticleSystem particleSystem = renderer.GetComponent<ParticleSystem>();
+                    if (particleSystem)
+                    {
+                        _AvatarInfo.maxParticles += particleSystem.main.maxParticles;
+                    }
+                }
+                else if (renderer is BillboardRenderer || renderer is SpriteRenderer || renderer is UnityEngine.Tilemaps.TilemapRenderer)
+                {
+                    _AvatarInfo.otherRenderers++;
+                }
             }
+
+            canvasRenderers.Clear();
+            ava.GetComponentsInChildren(true, canvasRenderers); 
             foreach (var item in canvasRenderers)
             {
                 _AvatarInfo.otherRenderers++;
                 _AvatarInfo.materialCount += item.materialCount;
             }
-            foreach (var item in billboardRenderers)
-            {
-                _AvatarInfo.otherRenderers++;
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-            }
-            foreach (var item in spriteRenderers)
-            {
-                _AvatarInfo.otherRenderers++;
-                _AvatarInfo.materialCount += item.sharedMaterials.Length;
-            }
-            _AvatarInfo.skinnedBones = transforms.Count();
-            _AvatarInfo.skinnedBonesVRC = transforms.Distinct().Count();
-            skinnedMeshRenderers.Clear();
-            meshRenderers.Clear();
-            trailRenderers.Clear();
-            lineRenderers.Clear();
-            particleSystemRenderers.Clear();
             canvasRenderers.Clear();
-            billboardRenderers.Clear();
-            spriteRenderers.Clear();
+
+            _AvatarInfo.skinnedBones = transforms.Count;
+            _AvatarInfo.skinnedBonesVRC = CountDistinct(transforms);
+            
             transforms.Clear();
+        }
+        private static readonly HashSet<Transform> tempDbHashSet = new HashSet<Transform>();
+        private int CountDistinct(List<Transform> collection)
+        {
+            if (collection == null || collection.Count == 0)
+            {
+                return 0;
+            }
+            tempDbHashSet.Clear();
+            tempDbHashSet.UnionWith(collection);
+            int count = tempDbHashSet.Count;
+            tempDbHashSet.Clear();
+            return count;
         }
         private int CountMesh(Mesh mesh)
         {
@@ -644,18 +658,18 @@ namespace Zettai
             }
             return 0;
         }
-        private int CountTrailRendererTris(TrailRenderer renderer)
+        private ulong CountTrailRendererTris(TrailRenderer renderer)
         {
             if (renderer)
             {
-                return (int)(renderer.time * 100);
+                return (ulong)(renderer.time * 100);
             }
             return 0;
         }
-        private int CountLineRendererTris(LineRenderer renderer)
+        private ulong CountLineRendererTris(LineRenderer renderer)
         {
             if (renderer)
-                return renderer.positionCount * 2; // idk..
+                return (ulong)(renderer.positionCount * 2); // idk..
             return 0;
         }
         public void CheckAudio(GameObject ava, ref AvatarInfo _AvatarInfo)
@@ -748,61 +762,10 @@ namespace Zettai
             ava.GetComponentsInChildren(true, renderers);
             foreach (var rend in renderers)
             {
+                string rendererName = rend.name;
                 foreach (var material in rend.sharedMaterials)
                 {
-                    if (material)
-                    {
-                        texturePropertyNames.Clear();
-                        material.GetTexturePropertyNames(texturePropertyNames);
-                        _AvatarInfo.passCount += material.passCount;
-                        AllMaterialNames.Add(material.name);
-                        AllShaderNames.Add(material.shader.name);
-                        AllMaterialInfo.Add(new AvatarInfo.MaterialInfo
-                        {
-                            name = material.name,
-                            renderQueue = (uint)material.renderQueue,
-                            shaderName = material.shader.name,
-#if UNITY_2019_1_OR_NEWER
-                            shaderPassCount = (uint)material.shader.passCount,
-#endif
-                            material = material
-                        });
-                        shaderKeywords.UnionWith(material.shaderKeywords);
-                        foreach (var _name in texturePropertyNames)
-                        {
-                            var texture = material.GetTexture(_name);
-                            if (texture != null) 
-                            {
-                                textures.Add(texture);
-                                if (!ShouldLog)
-                                {
-                                    continue;
-                                }
-                                string materialName = rend.name + "\\" + material.name;
-                                if (texturesMaterials.ContainsKey(texture)) 
-                                {
-                                    if (!texturesMaterials[texture].ContainsKey(materialName))                                    
-                                    {
-                                        texturesMaterials[texture].Add(materialName, new List<string>());    
-                                    }
-                                    if (texturesMaterials[texture][materialName].Contains(_name))
-                                    {
-                                        ;
-                                    }
-                                    else
-                                    {
-                                        texturesMaterials[texture][materialName].Add(_name);
-                                    }
-                                }
-                                else 
-                                {
-                                    texturesMaterials.Add(texture, new Dictionary<string, List<string>>());
-                                    texturesMaterials[texture].Add(materialName, new List<string>());
-                                    texturesMaterials[texture][materialName].Add(_name);
-                                }
-                            }
-                        }
-                    }
+                    CheckMaterial(material, _AvatarInfo, rendererName);
                 }
             }
             renderers.Clear();
@@ -819,263 +782,7 @@ namespace Zettai
             textureStatData.Clear();
             foreach (Texture texture in textures)
             {
-                if (Profiler.supported)
-                {
-                    profiler_mem = Profiler.GetRuntimeMemorySizeLong(texture);
-                    _AvatarInfo.textureMem += profiler_mem;
-                }
-                long _calc_mem = 0;
-                bool readWriteEnabled = texture.isReadable;
-                var dim = texture.dimension;
-                Type type = texture.GetType();
-                Texture2D texture2D;
-                RenderTexture rt;
-                Cubemap cubemap;
-                string materialName = "";
-                sb.Clear();
-                if (ShouldLog) 
-                {
-                    if (texturesMaterials.TryGetValue(texture, out Dictionary<string, List<string>> materials))
-                    {
-                        if (materials.Count > 0)
-                        {
-                            var material = materials.Keys.ToArray();
-                            for (int i = 0; i < material.Length; i++)
-                            {
-                                sb.Append(material[i]);
-                                if (materials[material[i]].Count > 0) 
-                                {
-                                    sb.Append(" (");
-                                    for (int j = 0; j < materials[material[i]].Count; j++)
-                                    {
-                                        sb.Append(materials[material[i]][j]);
-                                        if (j != materials[material[i]].Count - 1)
-                                        {
-                                            sb.Append(", ");
-                                        }
-                                    }
-                                    sb.Append(")");
-                                }
-                                if (i != material.Length - 1)
-                                {
-                                    sb.Append(", "); 
-                                }
-                            }
-                            materialName = sb.ToString();
-                        }
-                    }
-                }
-                switch (dim) 
-                {
-                    case TextureDimension.Tex2D:
-                        {
-                            if (type.Equals(typeof(Texture2D)))
-                            {
-                                texture2D = (Texture2D)texture;
-                                bool mipmapped = texture2D.mipmapCount > 1;
-                                _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, mipmapped, readWriteEnabled);
-                                if (ShouldLog)
-                                {
-                                    textureStatData.Add(new TextureStatData
-                                    {
-                                        type = "Texture2D",
-                                        width = texture2D.width,
-                                        height = texture2D.height,
-                                        format = texture2D.format.ToString(),
-                                        name = texture2D.name,
-                                        profiler_mem = profiler_mem,
-                                        _calc_mem = _calc_mem,
-                                        isReadable = readWriteEnabled,
-                                        materialName = materialName,
-                                        isMipmapped = mipmapped
-                                    });
-                                }
-                                texture2D = null;
-                            }
-                            else if (type.Equals(typeof(RenderTexture)))
-                            {
-                                rt = (RenderTexture)texture;
-                                _calc_mem = CalculateMaxRTMemUse(rt.format, rt.width, rt.height, rt.useMipMap, profiler_mem, rt.antiAliasing, rt.depth);
-                                _AvatarInfo.calc_mem += _calc_mem;
-                                if (ShouldLog)
-                                {
-                                    textureStatData.Add(new TextureStatData { 
-                                        type = "RenderTexture",
-                                        width = rt.width,
-                                        height = rt.height,
-                                        format = rt.format.ToString(), 
-                                        name = rt.name, 
-                                        profiler_mem = profiler_mem,
-                                        _calc_mem = _calc_mem,
-                                        isReadable = readWriteEnabled,
-                                        materialName = materialName
-                                    });
-                                }
-                                rt = null;
-                            }
-                            else
-                            {
-                                if (ShouldLog)
-                                {
-                                    textureStatData.Add(new TextureStatData { 
-                                        type = texture.GetType().ToString(),
-                                        width = texture.width,
-                                        height = texture.height, 
-                                        format = dim.ToString(),
-                                        name = texture.name, 
-                                        profiler_mem = profiler_mem,
-                                        _calc_mem = 0,
-                                        isReadable = readWriteEnabled,
-                                        materialName = materialName
-                                    });
-                                }
-                            }
-                            break;
-                        }
-                    case TextureDimension.Cube:
-                        {
-                            if (type.Equals(typeof(Cubemap)))
-                            {
-                                cubemap = (Cubemap)texture;
-                                bool mipmapped = cubemap.mipmapCount > 1;
-                                _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, mipmapped, readWriteEnabled) * 6);
-                                _AvatarInfo.calc_mem += _calc_mem;
-                                if (ShouldLog)
-                                {
-                                    textureStatData.Add(new TextureStatData { 
-                                        type = "Cubemap", 
-                                        width = cubemap.width,
-                                        height = cubemap.height,
-                                        format = cubemap.format.ToString(),
-                                        name = cubemap.name,
-                                        profiler_mem = profiler_mem, 
-                                        _calc_mem = _calc_mem,
-                                        isReadable = readWriteEnabled,
-                                        materialName = materialName,
-                                        isMipmapped = mipmapped
-                                    });
-                                }
-                                cubemap = null;
-                            }
-                            break;
-                        }
-                    case TextureDimension.CubeArray:
-                        {
-                            var cubemapArray = (CubemapArray)texture; bool mipmapped = false;
-#if UNITY_2019_1_OR_NEWER
-                            mipmapped = cubemapArray.mipmapCount > 0;
-#else
-                            {
-                                var _ = new Texture2D(texture.width, texture.height);
-                                Graphics.CopyTexture(texture, 0, _, 0);
-                                mipmapped = _.mipmapCount > 1;
-                            }
-#endif
-                            _calc_mem = (CalculateMaxMemUse(cubemapArray.format, cubemapArray.width, cubemapArray.height, mipmapped, readWriteEnabled) * 6) * cubemapArray.cubemapCount;
-                            _AvatarInfo.calc_mem += _calc_mem;
-                            if (ShouldLog)
-                            {
-                                textureStatData.Add(new TextureStatData {
-                                    type = "CubeArray" + cubemapArray.cubemapCount,
-                                    width = cubemapArray.width, 
-                                    height = cubemapArray.height,
-                                    format = cubemapArray.format.ToString(),
-                                    name = cubemapArray.name, 
-                                    profiler_mem = profiler_mem,
-                                    _calc_mem = _calc_mem,
-                                    materialName = materialName,
-                                    isMipmapped = mipmapped
-                                });
-                            }
-                            break;
-                        }
-                    case TextureDimension.Tex2DArray:
-                        {
-                            var texture2DArray = (Texture2DArray)texture;
-                            bool mipmapped = false;
-#if UNITY_2019_1_OR_NEWER
-                            mipmapped = texture2DArray.mipmapCount > 0;
-#else
-                            {
-                                var _ = new Texture2D(texture.width, texture.height);
-                                Graphics.CopyTexture(texture, 0, _, 0);
-                                mipmapped = _.mipmapCount > 1;
-                            }
-#endif
-                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2DArray.format, texture2DArray.width, texture2DArray.height, mipmapped, false) * texture2DArray.depth;
-                            if (ShouldLog)
-                            {
-                                textureStatData.Add(new TextureStatData {
-                                    type = "Tex2DArray" + texture2DArray.depth, 
-                                    width = texture2DArray.width, 
-                                    height = texture2DArray.height,
-                                    format = texture2DArray.format.ToString(),
-                                    name = texture2DArray.name,
-                                    profiler_mem = profiler_mem,
-                                    _calc_mem = _calc_mem,
-                                    materialName = materialName,
-                                    isMipmapped = mipmapped
-                                });
-                            }
-                            texture2D = null;
-                            break;
-                        }
-                    case TextureDimension.Tex3D:
-                        {
-                            var texture3D = (Texture3D)texture;
-                            bool mipmapped = false;
-#if UNITY_2019_1_OR_NEWER
-                            mipmapped = texture3D.mipmapCount > 0;
-#else
-                            {
-                                var _ = new Texture2D(texture.width, texture.height);
-                                Graphics.CopyTexture(texture, 0, _, 0);
-                                mipmapped = _.mipmapCount > 1;
-                            }
-#endif
-                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture3D.format, texture3D.width, texture3D.height, mipmapped, readWriteEnabled) * texture3D.depth;
-                            if (ShouldLog)
-                            {
-                                textureStatData.Add(new TextureStatData {
-                                    type = "texture3D",
-                                    width = texture3D.width,
-                                    height = texture3D.height,
-                                    format = texture3D.format.ToString(),
-                                    name = texture3D.name,
-                                    profiler_mem = profiler_mem,
-                                    _calc_mem = _calc_mem,
-                                    materialName = materialName,
-                                    isMipmapped = mipmapped
-                                });
-                            }
-                            break;
-                        }
-                    default: 
-                        {
-                            if (ShouldLog)
-                            {
-                                textureStatData.Add(new TextureStatData {
-                                    type = texture.GetType().ToString(),
-                                    width = texture.width,
-                                    height = texture.height,
-                                    format = dim.ToString(),
-                                    name = texture.name, 
-                                    profiler_mem = profiler_mem,
-                                    _calc_mem = 0,
-                                    materialName = materialName
-                                });
-                            }
-                            break;
-                        }
-                }
-                if (readWriteEnabled)
-                {
-                    vram += (ulong)(_calc_mem >> 1);
-                }
-                else
-                {
-                    vram += (ulong)_calc_mem;
-                }
+                CheckTexture(texture, _AvatarInfo, ref profiler_mem, ref vram);
             }
             _AvatarInfo.textureMemMB = Math.Round(_AvatarInfo.textureMem / 1024 / 1024f * 100) / 100f;
             _AvatarInfo.calc_memMB = Math.Round(_AvatarInfo.calc_mem / 1024 / 1024f * 100) / 100f;
@@ -1090,6 +797,447 @@ namespace Zettai
             textures.Clear();
             shaderKeywords.Clear();
         }
+
+        private List<string> GetTexturePropertyNames(string shader, Material material) 
+        {
+            if (!ShaderTexturePropertyNames.TryGetValue(shader, out List<string> _texturePropertyNames)) 
+            {
+                _texturePropertyNames = new List<string>();
+                material.GetTexturePropertyNames(_texturePropertyNames);
+                ShaderTexturePropertyNames.Add(shader, _texturePropertyNames);
+            }
+            return _texturePropertyNames;
+        }       
+        public static void ClearShaderStats() 
+        {
+            shaderPasses.Clear();
+            ShaderStats.Clear();
+        }
+        public static string GetShaderStats()
+        {
+            staticSB.Clear();
+            var passes = shaderPasses.AsEnumerable();
+            foreach (var pass in passes)
+            {
+                staticSB.AppendLine(pass);
+            }
+            staticSB.AppendLine("----------------------------");
+            var keys = ShaderStats.Keys.AsEnumerable();
+            foreach (var item in keys)
+            {
+                staticSB.Append(ShaderStats[item]);
+            }
+            return staticSB.ToString();
+        }
+        private void CheckMaterial(Material material, AvatarInfo _AvatarInfo, string rendererName)
+        {
+            if (!material)
+                return;
+            //  texturePropertyNames.Clear();
+            //  material.GetTexturePropertyNames(texturePropertyNames);
+            _AvatarInfo.passCount += material.passCount;
+            string _materialName = material.name;
+            AllMaterialNames.Add(_materialName);
+            var shader = material.shader;
+            if (!ShaderStats.ContainsKey(shader))
+            {
+                sb.Clear();
+                int _count = material.passCount;
+                sb.Append(shader.name);
+                sb.Append(": ");
+                sb.AppendLine(_count.ToString());
+                for (int i = 0; i < _count; i++)
+                {
+                    sb.Append(i);
+                    sb.Append(": ");
+                    var pass = material.GetPassName(i);
+                    shaderPasses.Add(pass);
+                    sb.AppendLine(pass);
+                }
+                ShaderStats[shader] = sb.ToString();
+            }
+            var materialShaderName = material.shader.name;
+            AllShaderNames.Add(materialShaderName);
+            AllMaterialInfo.Add(new AvatarInfo.MaterialInfo
+            {
+                name = _materialName,
+                renderQueue = (uint)material.renderQueue,
+                shaderName = materialShaderName,
+#if UNITY_2019_1_OR_NEWER
+                shaderPassCount = (uint)shader.passCount,
+#endif
+                material = material
+            });
+            shaderKeywords.UnionWith(material.shaderKeywords);
+            outNames.Clear();
+            material.GetTexturePropertyNameIDs(outNames);
+            if (ShouldLog)
+            {
+                bool hasMissing = false;
+                for (int i = 0; i < outNames.Count; i++)
+                    if (!TexturePropertyNameIDs.ContainsKey(outNames[i]))
+                        hasMissing = true;
+                texturePropertyNames.Clear();
+                if (hasMissing)
+                    material.GetTexturePropertyNames(texturePropertyNames);
+                if (outNames.Count == texturePropertyNames.Count)
+                    for (int i = 0; i < outNames.Count; i++)
+                        if (!TexturePropertyNameIDs.ContainsKey(outNames[i]))
+                            TexturePropertyNameIDs[outNames[i]] = texturePropertyNames[i];
+            }
+            var prevE = Application.GetStackTraceLogType(LogType.Error);
+            Application.SetStackTraceLogType(LogType.Error, StackTraceLogType.None);
+            bool prevLog = Debug.unityLogger.logEnabled;
+            Debug.unityLogger.logEnabled = false;
+            foreach (var _textureID in outNames)
+            {
+                var texture = material.GetTexture(_textureID);
+                if (texture != null)
+                {
+                    if (texture.GetType().Equals(typeof(CustomRenderTexture)))
+                    {
+                        var crt = texture as CustomRenderTexture;
+                        if (crt)
+                        {
+                            CheckMaterial(crt.initializationMaterial, _AvatarInfo, rendererName + " CRT: " + crt.name);
+                            CheckMaterial(crt.material, _AvatarInfo, rendererName + " CRT: " + crt.name);
+                        }
+                    }
+                    textures.Add(texture);
+                    if (!ShouldLog)
+                        continue;
+                    string materialName = rendererName + "\\" + _materialName;
+                    string _textureName = null;
+                    if (TexturePropertyNameIDs.ContainsKey(_textureID))
+                    {
+                        _textureName = TexturePropertyNameIDs[_textureID];
+                    }
+                    else
+                    {
+                        _textureName = _textureID.ToString();
+                    }
+                    if (texturesMaterials.ContainsKey(texture))
+                    {
+                        if (!texturesMaterials[texture].ContainsKey(materialName))
+                            texturesMaterials[texture].Add(materialName, new List<string>());
+                        if (!texturesMaterials[texture][materialName].Contains(_textureName))
+                            texturesMaterials[texture][materialName].Add(_textureName);
+                    }
+                    else
+                    {
+                        texturesMaterials.Add(texture, new Dictionary<string, List<string>>());
+                        texturesMaterials[texture].Add(materialName, new List<string>());
+                        texturesMaterials[texture][materialName].Add(_textureName);
+                    }
+                }
+            }
+            Debug.unityLogger.logEnabled = prevLog;
+            Application.SetStackTraceLogType(LogType.Error, prevE);
+        }
+        private void CheckTexture(Texture texture, AvatarInfo _AvatarInfo, ref long profiler_mem, ref ulong vram)
+        {
+            if (Profiler.supported)
+            {
+                profiler_mem = Profiler.GetRuntimeMemorySizeLong(texture);
+                _AvatarInfo.textureMem += profiler_mem;
+            }
+            long _calc_mem = 0;
+            bool readWriteEnabled = texture.isReadable;
+            var dim = texture.dimension;
+            Type type = texture.GetType();           
+            string materialName = "";            
+            if (ShouldLog)
+            {
+                sb.Clear();
+                if (texturesMaterials.TryGetValue(texture, out Dictionary<string, List<string>> materials))
+                {
+                    if (materials.Count > 0)
+                    {
+                        var material = materials.Keys.ToArray();
+                        for (int i = 0; i < material.Length; i++)
+                        {
+                            sb.Append(material[i]);
+                            if (materials[material[i]].Count > 0)
+                            {
+                                sb.Append(" (");
+                                for (int j = 0; j < materials[material[i]].Count; j++)
+                                {
+                                    sb.Append(materials[material[i]][j]);
+                                    if (j != materials[material[i]].Count - 1)
+                                    {
+                                        sb.Append(", ");
+                                    }
+                                }
+                                sb.Append(")");
+                            }
+                            if (i != material.Length - 1)
+                            {
+                                sb.Append(", ");
+                            }
+                        }
+                        materialName = sb.ToString();
+                    }
+                }
+            }
+            switch (dim)
+            {
+                case TextureDimension.Tex2D:
+                    {
+                        if (type.Equals(typeof(Texture2D)))
+                        {
+                            Texture2D texture2D = (Texture2D)texture;
+                            bool mipmapped = texture2D.mipmapCount > 1;
+                            _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, mipmapped, readWriteEnabled);
+                            if (ShouldLog)
+                            {
+                                textureStatData.Add(new TextureStatData
+                                {
+                                    type = "Texture2D",
+                                    width = texture2D.width,
+                                    height = texture2D.height,
+                                    format = GetTextureFormat(texture2D.format),
+                                    name = texture2D.name,
+                                    profiler_mem = profiler_mem,
+                                    _calc_mem = _calc_mem,
+                                    isReadable = readWriteEnabled,
+                                    materialName = materialName,
+                                    isMipmapped = mipmapped,
+                                    isStreaming = texture2D.streamingMipmaps
+                                });
+                            }
+                            texture2D = null;
+                        }
+                        else if (type.Equals(typeof(RenderTexture)))
+                        {
+                            RenderTexture rt = (RenderTexture)texture;
+                            _calc_mem = CalculateMaxRTMemUse(rt.format, rt.width, rt.height, rt.useMipMap, profiler_mem, rt.antiAliasing, rt.depth);
+                            _AvatarInfo.calc_mem += _calc_mem;
+                            if (ShouldLog)
+                            {
+                                textureStatData.Add(new TextureStatData
+                                {
+                                    type = "RenderTexture",
+                                    width = rt.width,
+                                    height = rt.height,
+                                    format = rt.format.ToString(),
+                                    name = rt.name,
+                                    profiler_mem = profiler_mem,
+                                    _calc_mem = _calc_mem,
+                                    isReadable = readWriteEnabled,
+                                    materialName = materialName
+                                });
+                            }
+                            rt = null;
+                        }
+                        else if (type.Equals(typeof(CustomRenderTexture)))
+                        {
+                            CustomRenderTexture crt = (CustomRenderTexture)texture;
+                            _calc_mem = CalculateMaxRTMemUse(crt.format, crt.width, crt.height, crt.useMipMap, profiler_mem, crt.antiAliasing, crt.depth);
+                            _AvatarInfo.calc_mem += _calc_mem;
+                            if (ShouldLog)
+                            {
+                                textureStatData.Add(new TextureStatData
+                                {
+                                    type = $"CustomRenderTexture (updateMode: {crt.updateMode}, pass: {crt.shaderPass}, pass: {crt.shaderPass})",
+                                    width = crt.width,
+                                    height = crt.height,
+                                    format = crt.format.ToString(),
+                                    name = crt.name,
+                                    profiler_mem = profiler_mem,
+                                    _calc_mem = _calc_mem,
+                                    isReadable = readWriteEnabled,
+                                    materialName = materialName
+                                });
+                            }
+                            crt = null;
+                        }
+                        else
+                        {
+                            if (ShouldLog)
+                            {
+                                textureStatData.Add(new TextureStatData
+                                {
+                                    type = texture.GetType().ToString(),
+                                    width = texture.width,
+                                    height = texture.height,
+                                    format = dim.ToString(),
+                                    name = texture.name,
+                                    profiler_mem = profiler_mem,
+                                    _calc_mem = 0,
+                                    isReadable = readWriteEnabled,
+                                    materialName = materialName
+                                });
+                            }
+                        }
+                        break;
+                    }
+                case TextureDimension.Cube:
+                    {
+                        if (type.Equals(typeof(Cubemap)))
+                        {
+                            Cubemap cubemap = (Cubemap)texture;
+                            bool mipmapped = cubemap.mipmapCount > 1;
+                            _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, mipmapped, readWriteEnabled) * 6);
+                            _AvatarInfo.calc_mem += _calc_mem;
+                            if (ShouldLog)
+                            {
+                                textureStatData.Add(new TextureStatData
+                                {
+                                    type = "Cubemap",
+                                    width = cubemap.width,
+                                    height = cubemap.height,
+                                    format = GetTextureFormat(cubemap.format),
+                                    name = cubemap.name,
+                                    profiler_mem = profiler_mem,
+                                    _calc_mem = _calc_mem,
+                                    isReadable = readWriteEnabled,
+                                    materialName = materialName,
+                                    isMipmapped = mipmapped,
+                                    isStreaming = cubemap.streamingMipmaps
+                                });
+                            }
+                            cubemap = null;
+                        }
+                        break;
+                    }
+                case TextureDimension.CubeArray:
+                    {
+                        var cubemapArray = (CubemapArray)texture; bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                        mipmapped = cubemapArray.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                        _calc_mem = (CalculateMaxMemUse(cubemapArray.format, cubemapArray.width, cubemapArray.height, mipmapped, readWriteEnabled) * 6) * cubemapArray.cubemapCount;
+                        _AvatarInfo.calc_mem += _calc_mem;
+                        if (ShouldLog)
+                        {
+                            textureStatData.Add(new TextureStatData
+                            {
+                                type = "CubeArray" + cubemapArray.cubemapCount,
+                                width = cubemapArray.width,
+                                height = cubemapArray.height,
+                                format = GetTextureFormat(cubemapArray.format),
+                                name = cubemapArray.name,
+                                profiler_mem = profiler_mem,
+                                _calc_mem = _calc_mem,
+                                materialName = materialName,
+                                isMipmapped = mipmapped
+                            });
+                        }
+                        break;
+                    }
+                case TextureDimension.Tex2DArray:
+                    {
+                        var texture2DArray = (Texture2DArray)texture;
+                        bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                        mipmapped = texture2DArray.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                        _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2DArray.format, texture2DArray.width, texture2DArray.height, mipmapped, false) * texture2DArray.depth;
+                        if (ShouldLog)
+                        {
+                            textureStatData.Add(new TextureStatData
+                            {
+                                type = "Tex2DArray" + texture2DArray.depth,
+                                width = texture2DArray.width,
+                                height = texture2DArray.height,
+                                format = GetTextureFormat(texture2DArray.format),
+                                name = texture2DArray.name,
+                                profiler_mem = profiler_mem,
+                                _calc_mem = _calc_mem,
+                                materialName = materialName,
+                                isMipmapped = mipmapped
+                            });
+                        }
+                        break;
+                    }
+                case TextureDimension.Tex3D:
+                    {
+                        var texture3D = (Texture3D)texture;
+                        bool mipmapped = false;
+#if UNITY_2019_1_OR_NEWER
+                        mipmapped = texture3D.mipmapCount > 0;
+#else
+                            {
+                                var _ = new Texture2D(texture.width, texture.height);
+                                Graphics.CopyTexture(texture, 0, _, 0);
+                                mipmapped = _.mipmapCount > 1;
+                            }
+#endif
+                        _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture3D.format, texture3D.width, texture3D.height, mipmapped, readWriteEnabled) * texture3D.depth;
+                        if (ShouldLog)
+                        {
+                            textureStatData.Add(new TextureStatData
+                            {
+                                type = "texture3D",
+                                width = texture3D.width,
+                                height = texture3D.height,
+                                format = GetTextureFormat(texture3D.format),
+                                name = texture3D.name,
+                                profiler_mem = profiler_mem,
+                                _calc_mem = _calc_mem,
+                                materialName = materialName,
+                                isMipmapped = mipmapped
+                            });
+                        }
+                        break;
+                    }
+                default:
+                    {
+                        if (ShouldLog)
+                        {
+                            textureStatData.Add(new TextureStatData
+                            {
+                                type = texture.GetType().ToString(),
+                                width = texture.width,
+                                height = texture.height,
+                                format = dim.ToString(),
+                                name = texture.name,
+                                profiler_mem = profiler_mem,
+                                _calc_mem = 0,
+                                materialName = materialName
+                            });
+                        }
+                        break;
+                    }
+            }
+            if (readWriteEnabled)
+            {
+                vram += (ulong)(_calc_mem >> 1);
+            }
+            else
+            {
+                vram += (ulong)_calc_mem;
+            }
+
+        }
+        private string GetTextureFormat(TextureFormat format)
+        {
+            return format.ToString();
+        }
+        public static string GetTexturePropertyNameIDCache() 
+        {
+            var values = TexturePropertyNameIDs.Values.ToArray();
+            staticSB.Clear();
+            staticSB.Append(values.Length);
+            staticSB.AppendLine(" elements in TexturePropertyNameID cache.");
+            for (int i = 0; i < values.Length; i++)
+            {
+                staticSB.AppendLine(values[i]);                
+            }
+            return staticSB.ToString();
+        }
         private struct TextureStatData
         { 
             public int width;
@@ -1102,6 +1250,7 @@ namespace Zettai
             public bool isReadable;
             public bool isMipmapped;
             public string materialName;
+            internal bool isStreaming;
         }
         private string AddTextureInfoToLog(double textureMemMB, double calc_memMB, ulong vram, long ElapsedTicks) 
         {
@@ -1144,6 +1293,14 @@ namespace Zettai
                 {
                     sb.Append("-");
                 }
+                if (texture.isStreaming)
+                {
+                    sb.Append("S");
+                }
+                else
+                {
+                    sb.Append("-");
+                }
                 sb.Append(")");
                 sb.Append(" Format: ");
                 sb.Append(texture.format.PadRight(16, ' '));               
@@ -1179,7 +1336,7 @@ namespace Zettai
         }
         private long CalculateMaxRTMemUse(RenderTextureFormat format, int width, int height, bool mipmapped, long _default, int antiAlias, int depth)
         {
-            long _calc_mem = 0;
+            long _calc_mem;
             switch (format)
             {
                 //// 4 bit/pixel
@@ -1195,6 +1352,7 @@ namespace Zettai
                     }
 
                 case RenderTextureFormat.ARGB4444: //2B/px
+                case RenderTextureFormat.ARGB1555:          // 16 bit
                 case RenderTextureFormat.R16:
                 case RenderTextureFormat.RG16:
                 case RenderTextureFormat.RHalf:
@@ -1213,14 +1371,21 @@ namespace Zettai
                 case RenderTextureFormat.BGRA32:
                 case RenderTextureFormat.RGHalf:
                 case RenderTextureFormat.RFloat:
+                case RenderTextureFormat.RInt:              // 32 bit
+                case RenderTextureFormat.RGB111110Float:    // 32 bit
+                case RenderTextureFormat.RG32:              // 32 bit
+                case RenderTextureFormat.Default:           // ARGB32
+                case RenderTextureFormat.ARGB2101010:       // 32 bit
                     {
                         _calc_mem = (long)(width * height * 4f);
                         break;
                     }
                 case RenderTextureFormat.ARGBHalf:
+                case RenderTextureFormat.DefaultHDR:        // ARGBHalf
                 case RenderTextureFormat.ARGB64:
                 case RenderTextureFormat.RGBAUShort:
-                case RenderTextureFormat.RGFloat: //8B/px
+                case RenderTextureFormat.RGFloat:           // 8B/px
+                case RenderTextureFormat.RGInt:             // 64 bit
                     {
                         _calc_mem = (long)(width * height * 8f);
                         break;
@@ -1236,6 +1401,9 @@ namespace Zettai
                         _calc_mem = 0; // Depth will be added later
                         break;
                     }
+                case RenderTextureFormat.Shadowmap:         // ?
+                case RenderTextureFormat.BGRA10101010_XR:   // 40 bit?
+                case RenderTextureFormat.BGR101010_XR:      // 30 bit?
                 default:
                     {
                         _calc_mem = _default;
@@ -1265,23 +1433,18 @@ namespace Zettai
                 MipMaps don't affect stencils.
 
              */
+            _calc_mem = _calc_mem * _AA * (long)(mipmapped ? FourThirds : 1f);
             switch (depth)
             {
-                case 0:
-                    {
-                        _calc_mem = _calc_mem * _AA * (long)(mipmapped ? FourThird : 1f);
-                        break;
-                    }
-
                 case 16:
                     {
-                        _calc_mem = _calc_mem * _AA * (long)(mipmapped ? FourThird : 1f) + (width * height * antiAlias * 2);
+                        _calc_mem += width * height * antiAlias * 2;
                         break;
                     }
                 case 24:
                 case 32:
                     {
-                        _calc_mem = _calc_mem * _AA * (long)(mipmapped ? FourThird : 1f) + (width * height * antiAlias * 4);
+                        _calc_mem += width * height * antiAlias * 4;
                         break;
                     }
             }
@@ -1292,6 +1455,13 @@ namespace Zettai
             long _calc_mem = 0;
             switch (format)
             {
+                case TextureFormat.PVRTC_RGBA2:
+                case TextureFormat.PVRTC_RGB2:      // 2 bit/pixel
+                    {
+                        _calc_mem = (long)(width * height / 4f);
+
+                        break;
+                    }
                 case TextureFormat.BC4:
                 case TextureFormat.DXT1:
                 case TextureFormat.DXT1Crunched:
@@ -1299,7 +1469,10 @@ namespace Zettai
                 case TextureFormat.EAC_R_SIGNED:
                 case TextureFormat.ETC_RGB4:
                 case TextureFormat.ETC_RGB4Crunched:
+                case TextureFormat.ETC_RGB4_3DS:      // obsolete but doesn't throw error in 2019.4
+
                 case TextureFormat.ETC2_RGB:
+                case TextureFormat.ETC2_RGBA1:        // tested in editor to be the same as ETC2_RGB
                 case TextureFormat.PVRTC_RGB4:
                 case TextureFormat.PVRTC_RGBA4:       // 4 bit/pixel
                     {
@@ -1317,11 +1490,49 @@ namespace Zettai
                 case TextureFormat.EAC_RG:
                 case TextureFormat.EAC_RG_SIGNED:
                 case TextureFormat.ETC2_RGBA8:
+                case TextureFormat.ETC_RGBA8_3DS:       // obsolete but doesn't throw error in 2019.4
                 case TextureFormat.ETC2_RGBA8Crunched:  // 8 bit/pixel
                     {
                         _calc_mem = width * height;
                         break;
+                    }                
+                case TextureFormat.ARGB4444: 
+                case TextureFormat.R16:
+                case TextureFormat.RG16:
+                case TextureFormat.RHalf:
+                case TextureFormat.RGB565:
+                case TextureFormat.RGBA4444:        // 2 Bytes/pixel
+                    {
+                        _calc_mem = (long)(width * height * 2f);
+                        break;
                     }
+                case TextureFormat.RGB24:
+                case TextureFormat.ARGB32: 
+                case TextureFormat.RGBA32:
+                case TextureFormat.BGRA32:
+                case TextureFormat.RG32:
+                case TextureFormat.RGB9e5Float:
+                case TextureFormat.RGHalf:
+                case TextureFormat.RFloat:          // 4 Bytes/pixel
+                    {
+                        _calc_mem = (long)(width * height * 4f);
+                        break;
+                    }
+                case TextureFormat.RGBAHalf:
+                case TextureFormat.RGB48:
+                case TextureFormat.RGBA64:
+                case TextureFormat.RGFloat:         // 8 Bytes/pixel
+                    {
+                        _calc_mem = (long)(width * height * 8f);
+                        break;
+                    }
+
+                case TextureFormat.RGBAFloat:       // 16 Bytes/pixel
+                    {
+                        _calc_mem = (long)(width * height * 16f);
+                        break;
+                    }
+
                 // ASTC is using 128 bits to store n×n pixels
 #if UNITY_2019_1_OR_NEWER
                 case TextureFormat.ASTC_4x4:
@@ -1377,51 +1588,17 @@ namespace Zettai
                         _calc_mem = (long)(width * height / (12 * 12) * 16f);
                         break;
                     }
-                case TextureFormat.ARGB4444: //2B/px
-                case TextureFormat.R16:
-                case TextureFormat.RG16:
-                case TextureFormat.RHalf:
-                case TextureFormat.RGB565:
-                case TextureFormat.RGBA4444:
-                    {
-                        _calc_mem = (long)(width * height * 2f);
-                        break;
-                    }
-
-                // 3B/px
-                //   {
-                //       _calc_mem = (long)(width * height * 3f );
-                //       break;
-                //   }
-                case TextureFormat.RGB24:
-                case TextureFormat.ARGB32: // 4B/px
-                case TextureFormat.RGBA32:
-                case TextureFormat.BGRA32:
-                case TextureFormat.RGHalf:
-                case TextureFormat.RFloat:
-                    {
-                        _calc_mem = (long)(width * height * 4f);
-                        break;
-                    }
-                case TextureFormat.RGBAHalf:
-                case TextureFormat.RGFloat: //8B/px
-                    {
-                        _calc_mem = (long)(width * height * 8f);
-                        break;
-                    }
-
-                case TextureFormat.RGBAFloat: //16B/px               
-                    {
-                        _calc_mem = (long)(width * height * 16f);
-                        break;
-                    }
+                case TextureFormat.YUY2: 
+                    // "Currently, this texture format is only useful for native code plugins
+                    // as there is no support for texture importing or pixel access for this format.
+                    // YUY2 is implemented for Direct3D 9, Direct3D 11, and Xbox One."
                 default:
                     {
                         _calc_mem = 0;
                         break;
                     }
             }
-            return (long)(_calc_mem * (readWriteEnabled ? 2 : 1) * (mipmapped ? FourThird : 1f));
+            return _calc_mem * (readWriteEnabled ? 2L : 1L) * (long)(mipmapped ? FourThirds : 1f);
         }
     }
 }
