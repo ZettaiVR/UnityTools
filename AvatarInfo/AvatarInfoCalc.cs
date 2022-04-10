@@ -301,9 +301,12 @@ namespace Zettai
                         bool flag = true;
                         try
                         {
-                     //       particleCount = (int)particleCount_fi.GetValue(db);
-                     //       colliderCount = (int)colliderCount_fi.GetValue(db);
-                            transformCount = (int)transformCount_fi.GetValue(db);
+                            //       particleCount = (int)particleCount_fi.GetValue(db);
+                            //       colliderCount = (int)colliderCount_fi.GetValue(db);
+                            if (transformCount_fi != null)
+                            {
+                                transformCount = (int)transformCount_fi.GetValue(db);
+                            }
                             flag = false;
                         }
                         catch (System.Exception e)
@@ -759,7 +762,9 @@ namespace Zettai
                             name = material.name,
                             renderQueue = (uint)material.renderQueue,
                             shaderName = material.shader.name,
+#if UNITY_2019_1_OR_NEWER
                             shaderPassCount = (uint)material.shader.passCount,
+#endif
                             material = material
                         });
                         shaderKeywords.UnionWith(material.shaderKeywords);
@@ -867,7 +872,8 @@ namespace Zettai
                             if (type.Equals(typeof(Texture2D)))
                             {
                                 texture2D = (Texture2D)texture;
-                                _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, texture2D.mipmapCount > 1, readWriteEnabled);
+                                bool mipmapped = texture2D.mipmapCount > 1;
+                                _AvatarInfo.calc_mem += _calc_mem = CalculateMaxMemUse(texture2D.format, texture2D.width, texture2D.height, mipmapped, readWriteEnabled);
                                 if (ShouldLog)
                                 {
                                     textureStatData.Add(new TextureStatData
@@ -880,7 +886,8 @@ namespace Zettai
                                         profiler_mem = profiler_mem,
                                         _calc_mem = _calc_mem,
                                         isReadable = readWriteEnabled,
-                                        materialName = materialName
+                                        materialName = materialName,
+                                        isMipmapped = mipmapped
                                     });
                                 }
                                 texture2D = null;
@@ -930,7 +937,8 @@ namespace Zettai
                             if (type.Equals(typeof(Cubemap)))
                             {
                                 cubemap = (Cubemap)texture;
-                                _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, cubemap.mipmapCount > 1, readWriteEnabled) * 6);
+                                bool mipmapped = cubemap.mipmapCount > 1;
+                                _calc_mem = (CalculateMaxMemUse(cubemap.format, cubemap.width, cubemap.height, mipmapped, readWriteEnabled) * 6);
                                 _AvatarInfo.calc_mem += _calc_mem;
                                 if (ShouldLog)
                                 {
@@ -943,7 +951,8 @@ namespace Zettai
                                         profiler_mem = profiler_mem, 
                                         _calc_mem = _calc_mem,
                                         isReadable = readWriteEnabled,
-                                        materialName = materialName
+                                        materialName = materialName,
+                                        isMipmapped = mipmapped
                                     });
                                 }
                                 cubemap = null;
@@ -974,7 +983,8 @@ namespace Zettai
                                     name = cubemapArray.name, 
                                     profiler_mem = profiler_mem,
                                     _calc_mem = _calc_mem,
-                                    materialName = materialName
+                                    materialName = materialName,
+                                    isMipmapped = mipmapped
                                 });
                             }
                             break;
@@ -1003,7 +1013,8 @@ namespace Zettai
                                     name = texture2DArray.name,
                                     profiler_mem = profiler_mem,
                                     _calc_mem = _calc_mem,
-                                    materialName = materialName
+                                    materialName = materialName,
+                                    isMipmapped = mipmapped
                                 });
                             }
                             texture2D = null;
@@ -1033,7 +1044,8 @@ namespace Zettai
                                     name = texture3D.name,
                                     profiler_mem = profiler_mem,
                                     _calc_mem = _calc_mem,
-                                    materialName = materialName
+                                    materialName = materialName,
+                                    isMipmapped = mipmapped
                                 });
                             }
                             break;
@@ -1065,8 +1077,6 @@ namespace Zettai
                     vram += (ulong)_calc_mem;
                 }
             }
-            if (!_AvatarInfo) { _AvatarInfo = ava.GetComponent<AvatarInfo>(); }
-            if (!_AvatarInfo) { _AvatarInfo = ava.AddComponent<AvatarInfo>(); }
             _AvatarInfo.textureMemMB = Math.Round(_AvatarInfo.textureMem / 1024 / 1024f * 100) / 100f;
             _AvatarInfo.calc_memMB = Math.Round(_AvatarInfo.calc_mem / 1024 / 1024f * 100) / 100f;
             _AvatarInfo.VRAM = vram;
@@ -1090,6 +1100,7 @@ namespace Zettai
             public long profiler_mem;
             public long _calc_mem;
             public bool isReadable;
+            public bool isMipmapped;
             public string materialName;
         }
         private string AddTextureInfoToLog(double textureMemMB, double calc_memMB, ulong vram, long ElapsedTicks) 
@@ -1125,6 +1136,14 @@ namespace Zettai
                 {
                     sb.Append("-");
                 }
+                if (texture.isMipmapped)
+                {
+                    sb.Append("M");
+                }
+                else
+                {
+                    sb.Append("-");
+                }
                 sb.Append(")");
                 sb.Append(" Format: ");
                 sb.Append(texture.format.PadRight(16, ' '));               
@@ -1139,6 +1158,10 @@ namespace Zettai
                         {
                             sb.Append(" | ");
                         }
+                    }
+                    else 
+                    {
+                        sb.Append("(can't be profiled) | ");
                     }
                     if (texture._calc_mem > 0)
                     {
