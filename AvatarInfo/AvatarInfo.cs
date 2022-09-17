@@ -53,8 +53,11 @@ namespace Zettai
         public string LongestPath;
         public string _MillisecsTaken;
         public bool ShouldLog;
-        public long AudioClipSize { get; set; }
-        public ulong VRAM { get; set; }
+        public long AudioClipSize;
+        public ulong VRAM_Textures;
+        public ulong VRAM_Meshes;
+        public ulong VRAM_MeshesProfiler;
+        public ulong VramBlendshapes;
 
         public MaterialInfo[] materialInfo { get; set; }
         public class MaterialInfo 
