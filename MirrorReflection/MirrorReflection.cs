@@ -98,18 +98,22 @@ public class MirrorReflection : MonoBehaviour
 			if (meshFilter != null)
 			{
 				Mesh mesh = meshFilter.sharedMesh;
-				if (mesh != null && mesh.normals.Length != 0)
+				if (mesh != null && mesh.isReadable && mesh.normals.Length != 0)
 				{
 					mirrorNormal = mesh.normals[0];
 					mirrorNormalAvg = GetObjectNormal(mesh);
 					if (mirrorNormalAvg == Vector3.zero)
 						mirrorNormalAvg = mirrorNormal;
 				}
+				else 
+				{
+					mirrorNormal = mirrorNormalAvg = -transform.forward;
+				}
 			}
 		}
 
 		// Make sure the mirror's material is unique
-
+#if UNITY_EDITOR
 		if (Application.isEditor)
 		{
 			// backup original material
@@ -120,15 +124,14 @@ public class MirrorReflection : MonoBehaviour
 				return;
 			for (int i = 0; i < m_tempSharedMaterials.Count; i++)
 			{
-				if (m_tempSharedMaterials[i].shader.name == MirrorShaderName)
-				{
-					m_tempSharedMaterials[i] = Instantiate(m_tempSharedMaterials[i]);
-
-				}
+				var material = m_tempSharedMaterials[i];
+				if (material.shader.name == MirrorShaderName && !material.name.Contains("(Clone)"))
+					material = Instantiate(material);
 			}
 			m_Renderer.sharedMaterials = m_tempSharedMaterials.ToArray();
 		}
-		else 
+		else
+#endif
 		{
 			m_MaterialsInstanced = m_Renderer.materials;
 		}
@@ -268,7 +271,7 @@ public class MirrorReflection : MonoBehaviour
 		float d = -Vector3.Dot(normal, mirrorPos);
 		Vector4 reflectionPlane = new Vector4(normal.x, normal.y, normal.z, d);
 		Matrix4x4 worldToCameraMatrix = CalculateReflectionMatrix(reflectionPlane);
-
+		
 		worldToCameraMatrix = m_InversionMatrix * (isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) * worldToCameraMatrix : currentCam.worldToCameraMatrix * worldToCameraMatrix);
 		m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
 		if (MoveMirrorCam)
@@ -401,10 +404,10 @@ public class MirrorReflection : MonoBehaviour
 	// Calculates reflection matrix around the given plane
 	public static Matrix4x4 CalculateReflectionMatrix(Vector4 plane)
 	{
-		float x = plane[0];
-		float y = plane[1];
-		float z = plane[2];
-		float w = plane[3];	
+		float x = plane.x;
+		float y = plane.y;
+		float z = plane.z;
+		float w = plane.w;	
 	
 	    column0.x = (1F - 2F * x * x);
 		column1.x = (-2F * x * y);

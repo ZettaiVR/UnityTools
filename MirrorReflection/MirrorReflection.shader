@@ -8,12 +8,12 @@ Shader "FX/MirrorReflection2"
 		[HideInInspector] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
 		[HideInInspector] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
 	}
-		SubShader
+	SubShader
 	{
 		Tags { "RenderType" = "Opaque" }
 		LOD 100
-
-		Pass {
+		Pass 
+		{
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
@@ -26,7 +26,8 @@ Shader "FX/MirrorReflection2"
 				float4 pos : SV_POSITION;
 				UNITY_VERTEX_OUTPUT_STEREO
 			};
-	struct appdata
+
+			struct appdata
 			{
 				float4 vertex : POSITION;
 				float2 uv : TEXCOORD0;
@@ -57,12 +58,13 @@ Shader "FX/MirrorReflection2"
 				UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
 				fixed4 tex = tex2D(_MainTex, i.uv);
-				fixed4 refl;
 				float4 projCoord = UNITY_PROJ_COORD(i.refl);
 				float2 proj2 = float2(1 - projCoord.x / projCoord.w, projCoord.y / projCoord.w);
-				if (unity_StereoEyeIndex == 0) refl = tex2D(_ReflectionTexLeft, proj2);
-				else refl = tex2D(_ReflectionTexRight, proj2);
-				return tex * refl;
+				if (unity_StereoEyeIndex == 0) 
+					tex *= tex2D(_ReflectionTexLeft, proj2);
+				else 
+					tex *= tex2D(_ReflectionTexRight, proj2);
+				return tex;
 			}
 			ENDCG
 		}
