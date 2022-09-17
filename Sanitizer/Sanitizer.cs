@@ -67,6 +67,10 @@ namespace Zettai
                 {
                     materialCount += LimitRenderer(renderer);
                 }
+                if (component is RotationConstraint) 
+                {
+                    RemoveZeroRotationConstraint(component);
+                }
                 Type compType = component.GetType();
                 if (compType == transformType || allowedTypes.Contains(compType))
                 {
@@ -87,6 +91,14 @@ namespace Zettai
             stopWatch.Stop();
             Application.SetStackTraceLogType(LogType.Error, previous);
             return (uint)(stopWatch.Elapsed.TotalMilliseconds * 1000);
+        }
+        private static void RemoveZeroRotationConstraint(Component component)
+        {
+            var rotationConstraint = component as RotationConstraint;
+            if (!rotationConstraint)
+                return;
+            if ((component.transform.localPosition == Vector3.zero && rotationConstraint.rotationOffset == Vector3.zero) || rotationConstraint.sourceCount == 0)
+                UnityEngine.Object.DestroyImmediate(component, true);
         }
         private static uint LimitRenderer(Renderer renderer)
         {
@@ -132,12 +144,13 @@ namespace Zettai
         }
         private static void RemoveComponent(Component component, Type type, Component[] componentsOnGameObject = null)
         {
+            var gameObject = component.gameObject;
             if (componentsOnGameObject == null)
-                componentsOnGameObject = GetComponentsOnGameObject(component.gameObject);
+                componentsOnGameObject = GetComponentsOnGameObject(gameObject);
             for (int i = 0; i < componentsOnGameObject.Length; i++)
             {
                 Component thisComp = componentsOnGameObject[i];
-                if (thisComp == null || thisComp == component)
+                if (!thisComp || thisComp == component)
                     continue;
                 Type thisType = thisComp.GetType();
                 var dep = GetComponentDependency(thisType);
@@ -146,19 +159,19 @@ namespace Zettai
                     if (!dep[j].hasDependency)
                         continue;
                     for (int k = 0; k < 3; k++)
-                        if (dep[j].types[k] == type)
+                        if (dep[j].types[k] == type && thisComp)
                             RemoveComponent(thisComp, thisType, componentsOnGameObject);
                 }
             }
-            AppendToRemoveLog(component, type);
+            AppendToRemoveLog(gameObject, type);
             UnityEngine.Object.DestroyImmediate(component, true);
         }
-        private static void AppendToRemoveLog(Component component, Type type)
+        private static void AppendToRemoveLog(GameObject gameObject, Type type)
         {
             removedComponents.Append("Removed component '");
             removedComponents.Append(type.Name);
             removedComponents.Append("' from gameObject '");
-            removedComponents.Append(component.gameObject.name);
+            removedComponents.Append(gameObject.name);
             removedComponents.AppendLine("'.");
         }
         private static Component[] GetComponentsOnGameObject(GameObject gameObject)
