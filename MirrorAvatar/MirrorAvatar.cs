@@ -1,90 +1,146 @@
 ﻿using System;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Linq;
+using UnityEngine;
 
+public static class MirrorAvatarExtentions 
+{
+    public static MirrorAvatar.MeshOptions SetFlag(this MirrorAvatar.MeshOptions flags, MirrorAvatar.MeshOptions flag, bool value)
+    {
+        if (value)
+            flags |= flag;
+        else
+            flags &= ~flag;
+
+        return flags;
+    }
+}
 public class MirrorAvatar : MonoBehaviour
 {
-    private enum OverrideValue
+    private const string OverrideHide = "[HideInView]";
+    private const string OverrideShow = "[ShowInView]";
+    private const string MainCamera = "MainCamera";
+    private static readonly Vector3 ZeroScale = new Vector3(0.0001f, 0.0001f, 0.0001f);
+    private enum OverrideValue 
     {
-        Default = 0,
-        Hide = 1,
-        Show = 2
+        Default,
+        Show,
+        Hide,
     }
-    private SkinnedMeshRenderer[] skinnedMeshRenderers;
-    private Renderer[] otherRenderers;  //includes all renderers
-    private bool[] shrinkSkinnedMesh;
-    private bool[] hideSkinnedMesh;
-    private bool[] hideMesh;
+    [Flags]
+    public enum MeshOptions : byte
+    {
+        None = 0,
+        Enabled = 1,
+        Hide = 2,
+        Shrink = 4,
+        OverrideHide = 8,
+        OverrideShow = 16,
+    }
+
+    private const UnityEngine.Rendering.ShadowCastingMode shadowsOnly = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+    private MeshOptions[] skinnedMeshOptions;
+    private MeshOptions[] otherMeshOptions;
     private bool[] enabledStateMesh;
     private bool[] enabledStateSkinnedMesh;
     private bool isActive;
-    private OverrideValue[] shrinkSkinnedMeshOverride;
-    private OverrideValue[] hideMeshOverride;
     private Transform head;
-    private GameObject zeroBone;
-    private Transform[][] original;         //first: index in skinnedMeshRenderers[] second: Transform[] to replace SMR bones with 
-    private Transform[][] noHead;
     public float MaxDistance = 0.5f;        //set it based on avatar scale/height
-    public List<Renderer> RenderersToHide;  //if a renderer is in both it will be hidden
-    public List<Renderer> RenderersToShow;
-    private List<Renderer> _renderersToHide = new List<Renderer>();
-    private List<Renderer> _renderersToShow = new List<Renderer>();
-    private void ModifyOverrides(List<Renderer> renderersIn, List<Renderer> smrlist, List<Renderer> rendererlist, OverrideValue overrideValue) 
-    {
-        for (int i = 0; i < renderersIn.Count; i++)
-        {
-            int index = smrlist.IndexOf(renderersIn[i]);
-            if (index >= 0)
-            {
-                shrinkSkinnedMeshOverride[index] = overrideValue;
-            }
-            index = rendererlist.IndexOf(renderersIn[i]);
-            if (index >= 0)
-            {
-                hideMeshOverride[index] = overrideValue;
-            }
-        }
-    }
+    public List<Renderer> RenderersToHide = new List<Renderer>();  //if a renderer is in both it will be hidden
+    public List<Renderer> RenderersToShow = new List<Renderer>();
+    private readonly List<Renderer> _renderersToHide = new List<Renderer>();
+    private readonly List<Renderer> _renderersToShow = new List<Renderer>();
+    private readonly List<Renderer> removedFromHideList = new List<Renderer>();
+    private readonly List<Renderer> removedFromShowList = new List<Renderer>();
+    private readonly List<Renderer> otherRenderers = new List<Renderer>();
+    private readonly List<Transform[]> originalBones = new List<Transform[]>();
+    private readonly List<Transform[]> hiddenBones = new List<Transform[]>();
+    private static readonly List<Transform> transformsUnderGameObject = new List<Transform>();
+    private static readonly List<Transform> tempTransforms = new List<Transform>();
+    private static readonly HashSet<Transform> transformsUnderHeadSet = new HashSet<Transform>();
+    /// <summary>
+    /// Bones to hide as key, their parent as value
+    /// </summary>
+    private static readonly Dictionary<Transform, Transform> transformsToHide = new Dictionary<Transform, Transform>();
+    private readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
+  
     private void LateUpdate()
     {
-        if (!RenderersToHide.SequenceEqual(_renderersToHide) || !RenderersToShow.SequenceEqual(_renderersToShow))
+        if (RenderersToHide.SequenceEqual(_renderersToHide) && RenderersToShow.SequenceEqual(_renderersToShow))
+            return;
+        Add(removedFromHideList, _renderersToHide, RenderersToHide);
+        Add(removedFromShowList, _renderersToShow, RenderersToShow);
+        ModifyOverrides(removedFromHideList, overrideHide: false, overrideShow: false);
+        ModifyOverrides(removedFromShowList, overrideHide: false, overrideShow: false);
+        ModifyOverrides(RenderersToShow, overrideHide: false, overrideShow: true);
+        ModifyOverrides(RenderersToHide, overrideHide: true, overrideShow: false);
+        _renderersToHide.Clear();
+        _renderersToShow.Clear();
+        _renderersToHide.AddRange(RenderersToHide);
+        _renderersToShow.AddRange(RenderersToShow);
+    }
+    private static void Add(List<Renderer> ToFill, List<Renderer> AddFrom, List<Renderer> Containing)
+    {
+        ToFill.Clear();
+        foreach (var value in AddFrom)
         {
-            var smrlist = skinnedMeshRenderers.ToList<Renderer>();
-            var rendererlist = otherRenderers.ToList();
-            var removedFromShowList = _renderersToShow.ToList();
-            removedFromShowList.RemoveAll(m => RenderersToShow.Contains(m));
-            var removedFromHideList = _renderersToHide.ToList();
-            removedFromHideList.RemoveAll(m => RenderersToHide.Contains(m));
-            ModifyOverrides(removedFromHideList, smrlist, rendererlist, OverrideValue.Default);
-            ModifyOverrides(removedFromShowList, smrlist, rendererlist, OverrideValue.Default);
-            ModifyOverrides(RenderersToShow, smrlist, rendererlist, OverrideValue.Show); 
-            ModifyOverrides(RenderersToHide, smrlist, rendererlist, OverrideValue.Hide);
-            _renderersToHide = RenderersToHide.ToList();
-            _renderersToShow = RenderersToShow.ToList();
+            if (Containing.Contains(value))
+                ToFill.Add(value);
         }
     }
-    // Start is called before the first frame update
+
     void Start() 
     {
         Initialize();
     }
+    private void ModifyOverrides(List<Renderer> renderersIn, bool overrideHide, bool overrideShow)
+    {
+        for (int i = 0; i < renderersIn.Count; i++)
+        {
+            int index;
+            if (renderersIn[i] is SkinnedMeshRenderer smr)
+            {
+                index = skinnedMeshRenderers.IndexOf(smr);
+                if (index >= 0)
+                {
+                    skinnedMeshOptions[i] = skinnedMeshOptions[i].SetFlag(MeshOptions.OverrideHide, overrideHide);
+                    skinnedMeshOptions[i] = skinnedMeshOptions[i].SetFlag(MeshOptions.OverrideShow, overrideShow);
+                }
+            }
+            index = otherRenderers.IndexOf(renderersIn[i]);
+            if (index >= 0)
+            {
+                otherMeshOptions[i] = otherMeshOptions[i].SetFlag(MeshOptions.OverrideHide, overrideHide);
+                otherMeshOptions[i] = otherMeshOptions[i].SetFlag(MeshOptions.OverrideShow, overrideShow);
+            }
+        }
+    }
     public void Initialize()
     {
-        Animator animator;
-        Transform[] transformsUnderHead;    //all bones under the head bone (incl)
-        if ((animator = gameObject.GetComponent<Animator>()) != null && animator.isHuman)
+        transformsToHide.Clear();
+        Animator animator = gameObject.GetComponent<Animator>();
+        if (animator && animator.isHuman)
         {
             isActive = true;
             head = animator.GetBoneTransform(HumanBodyBones.Head);
-            transformsUnderHead = head.GetComponentsInChildren<Transform>();
-            zeroBone = new GameObject
+            var zeroBone = new GameObject
             {
-                name = head.name + "-ZeroBone"
+                name = "HeadZeroBone",
+                hideFlags = HideFlags.HideAndDontSave,
             };
-            zeroBone.transform.localScale = new Vector3(0.0001f, 0.0001f, 0.0001f);
-            zeroBone.transform.SetParent(head);
-            zeroBone.transform.localPosition = Vector3.zero;
+            var zeroTransform = zeroBone.transform;
+            zeroTransform.SetParent(head);
+            zeroTransform.localScale = ZeroScale;
+            zeroTransform.localPosition = Vector3.zero;
+            head.GetComponentsInChildren(true, transformsUnderGameObject);
+            transformsUnderHeadSet.Clear();
+            transformsUnderHeadSet.UnionWith(transformsUnderGameObject);
+            foreach (var bone in transformsUnderGameObject)
+            {
+                transformsToHide[bone] = zeroTransform;
+            }
+            transformsUnderGameObject.Clear();
+           
         }
         else
         {
@@ -92,184 +148,226 @@ public class MirrorAvatar : MonoBehaviour
             isActive = false;
             return;
         }
-        var smrs = gameObject.GetComponentsInChildren<SkinnedMeshRenderer>();
-        var smr = gameObject.GetComponent<SkinnedMeshRenderer>();
-        var renderers = gameObject.GetComponentsInChildren<Renderer>();
-        var renderer = gameObject.GetComponent<Renderer>();
-        List<SkinnedMeshRenderer> SMRList = new List<SkinnedMeshRenderer>();
-        if (smrs != null && smrs.Length > 0) { SMRList.AddRange(smrs); }
-        if (smr != null ) { SMRList.Add(smr); }
-        skinnedMeshRenderers = SMRList.ToArray();
-        List<Renderer> MRList = new List<Renderer>();
-        if (renderers != null && renderers.Length > 0) { MRList.AddRange(renderers); }
-        if (renderer != null) { MRList.Add(renderer); }
+        GetRenderes();
+        InitializeArrays();
+        SetupSkinnedRenderers();
+        SetupOtherRenderers();
+        Camera.onPreRender += OnPreRenderShrink;
+        Camera.onPostRender += OnPostRenderShrink;
+    }
 
-
-        original = new Transform[skinnedMeshRenderers.Length][];
-        noHead = new Transform[skinnedMeshRenderers.Length][];
-        shrinkSkinnedMesh = new bool[skinnedMeshRenderers.Length];
-        shrinkSkinnedMeshOverride = new OverrideValue[skinnedMeshRenderers.Length];
-        for (int i = 0; i < skinnedMeshRenderers.Length; i++)
+    private void SetupOtherRenderers()
+    {
+        var rendererCount = otherRenderers.Count;
+        for (var i = 0; i < rendererCount; i++)
         {
-            shrinkSkinnedMeshOverride[i] = OverrideValue.Default;
+            var otherRenderer = otherRenderers[i];
+            var name = otherRenderer.name;
+            var show = name.Contains(OverrideShow);
+            if (show)
+                continue;
+            var hide = name.Contains(OverrideHide);
+            var renderShadowsOnly = otherRenderer.shadowCastingMode == shadowsOnly;
+            var underHead = transformsUnderHeadSet.Contains(otherRenderer.gameObject.transform);
+            if (hide || underHead && !renderShadowsOnly)
+                otherMeshOptions[i] |= MeshOptions.Hide;
         }
-        hideSkinnedMesh = new bool[skinnedMeshRenderers.Length];
-        enabledStateSkinnedMesh = new bool[skinnedMeshRenderers.Length];
-        SkinnedMeshRenderer tempSkinnedMeshRenderer;
-        for (var i = 0; i < skinnedMeshRenderers.Length; i++)
+    }
+
+    private void SetupSkinnedRenderers()
+    {
+        var empty = Array.Empty<Transform>();
+        for (var i = 0; i < skinnedMeshRenderers.Count; i++)
         {
-            shrinkSkinnedMesh[i] = false;
-            tempSkinnedMeshRenderer = skinnedMeshRenderers[i];
-            if (tempSkinnedMeshRenderer.bones != null && tempSkinnedMeshRenderer.bones.Length > 0)
+            var skinnedMeshRenderer = skinnedMeshRenderers[i];
+            var name = skinnedMeshRenderer.name;
+            if (name.Contains(OverrideShow) || skinnedMeshRenderer.shadowCastingMode == shadowsOnly)
             {
-                hideSkinnedMesh[i] = false;
+                //don't hide/shrink stuff that's shadows only or is tagged to be shown
+                if (name.Contains(OverrideHide))
+                    skinnedMeshOptions[i] |= MeshOptions.Hide;
+                originalBones.Add(empty);
+                hiddenBones.Add(empty);
+                continue;
+            }
+            var shrinkThisMesh = false;
+            var hideThisMesh = false;
+            var bones = skinnedMeshRenderer.bones;
+            var noHeadBones = bones;
+            originalBones.Add(bones);
+            if (bones != null && bones.Length > 0)
+            {
                 //it has bones
-                for (var j = 0; j < tempSkinnedMeshRenderer.bones.Length; j++)
+                for (var j = 0; j < bones.Length; j++)
                 {
-                    //don't hide/shrink stuff that's shadows only
-                    if (transformsUnderHead.Contains(tempSkinnedMeshRenderer.bones[j]) &&
-                    skinnedMeshRenderers[i].shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly)
+                    var bone = bones[j];
+                    var boneName = bone.name;
+                    var otherHide = transformsToHide.ContainsKey(bone);
+                    var headHide = transformsUnderHeadSet.Contains(bone);
+                    var overrideShow = boneName.Contains(OverrideShow);
+                    if ((!headHide && !otherHide) || overrideShow)
+                        continue;
+
+                    if (!shrinkThisMesh)
                     {
-                        if (!shrinkSkinnedMesh[i])
-                        {
-                            shrinkSkinnedMesh[i] = true;
-                            //knah: "In most cases when unity returns a T[], it creates a new one for each get"
-                            original[i] = tempSkinnedMeshRenderer.bones;
-                            noHead[i] = tempSkinnedMeshRenderer.bones;
-                        }
-                        noHead[i][j] = zeroBone.transform;
+                        shrinkThisMesh = true;
+                        noHeadBones = bones.ToArray(); // another array with the same content
                     }
+                    noHeadBones[j] = transformsToHide[bone];
                 }
-                tempSkinnedMeshRenderer.forceMatrixRecalculationPerRender = shrinkSkinnedMesh[i];
+                skinnedMeshRenderer.forceMatrixRecalculationPerRender = shrinkThisMesh;
             }
             else
             {
                 //has no bones... we'll have to disable it if it's under the head bone
 
-                if (transformsUnderHead.Contains(skinnedMeshRenderers[i].gameObject.transform) &&
-                    skinnedMeshRenderers[i].shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly)
-                {
-                    shrinkSkinnedMesh[i] = true;
-                    hideSkinnedMesh[i] = true;
-                }
-                else
-                {
-                    shrinkSkinnedMesh[i] = false;
-                    hideSkinnedMesh[i] = false;
-                }
+                shrinkThisMesh = hideThisMesh = transformsUnderHeadSet.Contains(skinnedMeshRenderer.gameObject.transform) &&
+                    skinnedMeshRenderer.shadowCastingMode != shadowsOnly;
             }
+            hideThisMesh |= name.Contains(OverrideHide);
+            hiddenBones.Add(noHeadBones);
+            if (shrinkThisMesh)
+                skinnedMeshOptions[i] |= MeshOptions.Shrink;
+            if (hideThisMesh)
+                skinnedMeshOptions[i] |= MeshOptions.Hide;
         }
-        otherRenderers = RemoveSMR(MRList, SMRList);
-        hideMesh = new bool[otherRenderers.Length];
-        hideMeshOverride = new OverrideValue[otherRenderers.Length];
-        for (int i = 0; i < otherRenderers.Length; i++)
-        {
-            hideMeshOverride[i] = OverrideValue.Default;
-        }
-        enabledStateMesh = new bool[otherRenderers.Length];
-        for (var i = 0; i < otherRenderers.Length; i++)
-        {
-            if (transformsUnderHead.Contains(otherRenderers[i].gameObject.transform) &&
-                otherRenderers[i].shadowCastingMode != UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly)
-            {
-                hideMesh[i] = true;
-            }
-            else if (otherRenderers[i].GetType().Equals(typeof(SkinnedMeshRenderer))) 
-            {
-                hideMesh[i] = true;
-            }
-            else
-            {
-                hideMesh[i] = false;
-            }
-        }
-        Camera.onPreRender += OnPreRenderShrink;
-        Camera.onPostRender += OnPostRenderShrink;
     }
+
+    private void InitializeArrays()
+    {
+        skinnedMeshOptions = new MeshOptions[skinnedMeshRenderers.Count];
+        enabledStateSkinnedMesh = new bool[skinnedMeshRenderers.Count];
+        otherMeshOptions = new MeshOptions[otherRenderers.Count];
+        enabledStateMesh = new bool[otherRenderers.Count];
+    }
+
+    private void GetRenderes()
+    {
+        gameObject.GetComponentsInChildren(true, skinnedMeshRenderers);
+        var smr = gameObject.GetComponent<SkinnedMeshRenderer>();
+        if (smr != null)
+            skinnedMeshRenderers.Add(smr);
+        gameObject.GetComponentsInChildren(true, otherRenderers);
+        var renderer = gameObject.GetComponent<Renderer>();
+        if (renderer != null)
+            otherRenderers.Add(renderer);
+        RemoveSMR(otherRenderers, skinnedMeshRenderers);
+        gameObject.GetComponentsInChildren(true, transformsUnderGameObject); // all transforms
+        foreach (var bone in transformsUnderGameObject)
+        {
+            if (!bone || !bone.name.Contains(OverrideHide))
+                continue;
+            bone.GetComponentsInChildren(true, tempTransforms);
+            foreach (var childBone in tempTransforms)
+            {
+                var zeroBone = new GameObject
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    name = "ZeroBone",
+                };
+                var zeroTransform = zeroBone.transform;
+                zeroTransform.SetParent(bone);
+                zeroTransform.localScale = ZeroScale;
+                zeroTransform.localPosition = Vector3.zero;
+                transformsToHide[childBone] = zeroTransform;
+            }
+        }
+        transformsUnderGameObject.Clear();
+        tempTransforms.Clear();
+    }
+
     private void OnDestroy()
     {
         Camera.onPreRender -= OnPreRenderShrink;
         Camera.onPostRender -= OnPostRenderShrink;
-        //clean up for the editor
-        Destroy(zeroBone); 
     }
-    private Renderer[] RemoveSMR(List<Renderer> MRList, List<SkinnedMeshRenderer> SMRList) 
+    private void RemoveSMR(List<Renderer> MRList, List<SkinnedMeshRenderer> SMRList) 
     {
-        for (int i = 0; i < SMRList.Count; i++)
+        for (int i = SMRList.Count - 1; i >= 0; i--)
         {
-            if (!hideSkinnedMesh[i])
+            if (skinnedMeshOptions[i].HasFlag(MeshOptions.Hide))
             {
-                Renderer item = SMRList[i];
+                var item = SMRList[i];
                 MRList.Remove(item);
             }
-        } 
-        return MRList.ToArray();
+        }
     }
     public void OnPreRenderShrink(Camera cam)
     {
-        isActive = (cam.transform.position - head.position).magnitude < MaxDistance;
-        //Debug.Log($"OnPre, cam = {cam.name}, isActive = {isActive}, dist: {(cam.transform.position - Head.position).magnitude}, time {Time.time}");
-        if (isActive) 
+        isActive = Vector3.Distance(cam.transform.position, head.position) < MaxDistance;
+        if (!isActive || !cam.CompareTag(MainCamera))
+            return;
+
+        var count = skinnedMeshOptions.Length;
+        for (var i = 0; i < count; i++)
         {
-            if (cam.CompareTag("MainCamera"))
+            var options = skinnedMeshOptions[i];
+            var skinnedMeshRenderer = skinnedMeshRenderers[i];
+            var overrideHide = options.HasFlag(MeshOptions.OverrideHide);
+            var overrideShow = options.HasFlag(MeshOptions.OverrideShow);
+            var shrink = options.HasFlag(MeshOptions.Shrink);
+            if (shrink && !overrideHide && !overrideShow)
             {
-                for (var i = 0; i < shrinkSkinnedMesh.Length; i++) 
-                {
-                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == OverrideValue.Default))
-                    {
-                        skinnedMeshRenderers[i].bones = noHead[i];
-                        continue;
-                    }
-                    else
-                    {
-                        //  skinnedMeshRenderers[i].bones = original[i]; 
-                    }
-                    if (shrinkSkinnedMeshOverride[i] == OverrideValue.Hide)
-                    {
-                        enabledStateSkinnedMesh[i] = skinnedMeshRenderers[i].enabled;
-                        skinnedMeshRenderers[i].enabled = false;
-                    }
-                }
-                for (var i = 0; i < hideMesh.Length; i++)
-                {
-                    if (hideMesh[i] && (hideMeshOverride[i] != OverrideValue.Show) || hideMeshOverride[i] == OverrideValue.Hide)
-                    {
-                        enabledStateMesh[i] = otherRenderers[i].enabled;
-                        if (otherRenderers[i].enabled)
-                        {
-                            otherRenderers[i].enabled = false;
-                        }
-                    }
-                }
-            } 
+                skinnedMeshRenderer.bones = hiddenBones[i];
+                continue;
+            }
+            if (overrideHide && !overrideShow)
+            {
+                enabledStateSkinnedMesh[i] = skinnedMeshRenderer.enabled;
+                skinnedMeshRenderer.enabled = false;
+            }
+        }
+        count = otherMeshOptions.Length;
+        for (var i = 0; i < count; i++)
+        {
+            var options = otherMeshOptions[i];
+            var overrideHide = options.HasFlag(MeshOptions.OverrideHide);
+            var overrideShow = options.HasFlag(MeshOptions.OverrideShow);
+            var hide = options.HasFlag(MeshOptions.Hide);
+            if (hide && !overrideShow || overrideHide)
+            {
+                var renderer = otherRenderers[i];
+                var enabled = enabledStateMesh[i] = renderer.enabled;
+                if (enabled)
+                    renderer.enabled = false;
+            }
         }
     }
     public void OnPostRenderShrink(Camera cam)
     {
-        //Debug.Log($"OnPost, cam = {cam.name}, isActive = {isActive}, time {Time.time}");
-        if (isActive)
+        if (!isActive || !cam.CompareTag(MainCamera))
+            return;
+        var count = skinnedMeshOptions.Length;
+
+        for (var i = 0; i < count; i++)
         {
-            if (cam.CompareTag("MainCamera"))
+            var options = skinnedMeshOptions[i];
+            var skinnedMeshRenderer = skinnedMeshRenderers[i];
+            var overrideHide = options.HasFlag(MeshOptions.OverrideHide);
+            var overrideShow = options.HasFlag(MeshOptions.OverrideShow);
+            var shrink = options.HasFlag(MeshOptions.Shrink);
+            if (shrink && !overrideShow && !overrideHide)
             {
-                for (var i = 0; i < shrinkSkinnedMesh.Length; i++)
-                {
-                    if (shrinkSkinnedMesh[i] && (shrinkSkinnedMeshOverride[i] == OverrideValue.Default))
-                    {
-                        skinnedMeshRenderers[i].bones = original[i];
-                        continue;
-                    }
-                    if (shrinkSkinnedMeshOverride[i] == OverrideValue.Hide)
-                    {
-                        skinnedMeshRenderers[i].enabled = enabledStateSkinnedMesh[i];
-                    }
-                }
-                for (var i = 0; i < hideMesh.Length; i++)
-                {
-                    if (hideMesh[i] && (hideMeshOverride[i] != OverrideValue.Show) || hideMeshOverride[i] == OverrideValue.Hide)
-                    {
-                        otherRenderers[i].enabled = enabledStateMesh[i];
-                    }
-                }
+                skinnedMeshRenderer.bones = originalBones[i];
+                continue;
+            }
+            if (overrideHide || overrideShow)
+            {
+                skinnedMeshRenderer.enabled = enabledStateSkinnedMesh[i];
+            }
+        }
+        count = otherMeshOptions.Length;
+        for (var i = 0; i < count; i++)
+        {
+            var options = otherMeshOptions[i];
+            var renderer = otherRenderers[i];
+            var hide = options.HasFlag(MeshOptions.Hide);
+            var overrideHide = options.HasFlag(MeshOptions.OverrideHide);
+            var overrideShow = options.HasFlag(MeshOptions.OverrideShow);
+
+            if (hide && (!overrideShow || overrideHide))
+            {
+                renderer.enabled = enabledStateMesh[i];
             }
         }
     }
