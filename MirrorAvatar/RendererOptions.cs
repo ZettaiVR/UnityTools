@@ -1,70 +1,82 @@
 ﻿using UnityEngine;
 
-[RequireComponent(typeof(Renderer))]
+#pragma warning disable IDE0051
 public class RendererOptions : MonoBehaviour
 {
     public enum RendererOptionsEnum
     {
         Default = 0,
-        ForceHideInFirstPerson = 1,
-        ForceShowInFirstPerson = 2
+        ForceHide = 1,
+        ForceShow = 2
     }
-    public RendererOptionsEnum FirstPersonVisibility;
-    private RendererOptionsEnum _FirstPersonVisibility;    
-    private MirrorAvatar MirrorAvatar;
-    private Renderer myRenderer;
-    private bool scriptFound = false;
+    public RendererOptionsEnum firstPersonVisibility = RendererOptionsEnum.Default;
+    private RendererOptionsEnum previousFirstPersonVisibility = RendererOptionsEnum.Default;    
+    private MirrorAvatar mirrorAvatar;
+    internal Renderer myRenderer;
     void Start()
     {
-        if (MirrorAvatar == null)
-        {
-            MirrorAvatar = gameObject.GetComponentInParent<MirrorAvatar>();
-            
-        }
-        if (myRenderer == null) 
-        {
-            myRenderer = gameObject.GetComponent<Renderer>();
-        }
-        if (MirrorAvatar == null) 
-        {
-            scriptFound = false;
-            myRenderer.enabled = false;
-            return;
-        }
-        scriptFound = true;
+        FindScript();
+        gameObject.TryGetComponent(out myRenderer);
+        if (mirrorAvatar)
+            mirrorAvatar.AddRendererOptions(this);
     }
-    void LateUpdate()
+    private void FindScript()
     {
-        if (scriptFound && (FirstPersonVisibility != _FirstPersonVisibility))
+        mirrorAvatar = gameObject.GetComponentInParent<MirrorAvatar>();
+    }
+    private void OnDestroy()
+    {
+        if (mirrorAvatar)
+            mirrorAvatar.RemoveRendererOptions(transform);
+    }
+    void OnDidApplyAnimationProperties()
+    {
+        if (!mirrorAvatar)
+            FindScript();
+         
+        if (!mirrorAvatar || firstPersonVisibility == previousFirstPersonVisibility)
+            return;
+         
+        previousFirstPersonVisibility = firstPersonVisibility;
+        if (mirrorAvatar)
+            mirrorAvatar.optionsChanged = true;
+        switch (firstPersonVisibility)
         {
-            switch (FirstPersonVisibility)
-            {
-                case RendererOptionsEnum.Default:
+            case RendererOptionsEnum.Default:
+                {
+                    if (myRenderer)
                     {
-                        MirrorAvatar.RenderersToShow.Remove(myRenderer);
-                        MirrorAvatar.RenderersToHide.Remove(myRenderer);
-                        break;
+                        mirrorAvatar.RenderersToShow.Remove(myRenderer);
+                        mirrorAvatar.RenderersToHide.Remove(myRenderer);
                     }
-                case RendererOptionsEnum.ForceHideInFirstPerson:
+                    return;
+                }
+            case RendererOptionsEnum.ForceHide:
+                {
+                    if (myRenderer)
                     {
-                        if (!MirrorAvatar.RenderersToHide.Contains(myRenderer))
+                        if (!mirrorAvatar.RenderersToHide.Contains(myRenderer))
                         {
-                            MirrorAvatar.RenderersToHide.Add(myRenderer);
+                            mirrorAvatar.RenderersToHide.Add(myRenderer);
                         }
-                        MirrorAvatar.RenderersToShow.Remove(myRenderer);
-                        break;
+                        mirrorAvatar.RenderersToShow.Remove(myRenderer);
                     }
-                case RendererOptionsEnum.ForceShowInFirstPerson:
+                    return;
+                }
+            case RendererOptionsEnum.ForceShow:
+                {
+                    if (myRenderer)
                     {
-                        if (!MirrorAvatar.RenderersToShow.Contains(myRenderer))
+                        if (!mirrorAvatar.RenderersToShow.Contains(myRenderer))
                         {
-                            MirrorAvatar.RenderersToShow.Add(myRenderer);
+                            mirrorAvatar.RenderersToShow.Add(myRenderer);
                         }
-                        MirrorAvatar.RenderersToHide.Remove(myRenderer);
-                        break;
+                        mirrorAvatar.RenderersToHide.Remove(myRenderer);
                     }
-            }
-            _FirstPersonVisibility = FirstPersonVisibility;
+                    return;
+                }
         }
     }
 }
+
+#pragma warning restore IDE0051
