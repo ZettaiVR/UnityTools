@@ -13,7 +13,7 @@ namespace Zettai
         public SkinnedMeshRenderer skinnedMeshRenderer;
         public string FolderName;
         public string FileNameStart;
-        public List<float> ValuesInAnimation = new List<float>();
+        public List<float> ValuesInAnimation = new List<float>() { 0, 1 };
     }
 #if UNITY_EDITOR
 
