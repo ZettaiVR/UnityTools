@@ -1,7 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
 using System;
-using Unity.Collections;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -11,6 +10,7 @@ namespace Zettai
     public class AnimationFilesForBlendshapes : MonoBehaviour
     {
         public SkinnedMeshRenderer skinnedMeshRenderer;
+        public bool IndividualFiles = true;
         public string FolderName;
         public string FileNameStart;
         public List<float> ValuesInAnimation = new List<float>() { 0, 1 };
@@ -56,20 +56,48 @@ namespace Zettai
                 if (values.Count < 1) 
                     values.Add(0);
                 string objectName = script.skinnedMeshRenderer.gameObject.name;
-                for (int i = 0; i < count; i++)
+                if (script.IndividualFiles)
                 {
-                    var shapeName = mesh.GetBlendShapeName(i);
-                    SaveAnimationFile(name, objectName, script.FolderName, $"blendShape.{shapeName}", typeof(SkinnedMeshRenderer), values);
+                    for (int i = 0; i < count; i++)
+                    {
+                        var shapeName = $"blendShape.{mesh.GetBlendShapeName(i)}";
+                        var clip = CreateClip(objectName, shapeName, typeof(SkinnedMeshRenderer), values);
+                        SaveAnimationFile(clip, name, script.FolderName, shapeName);
+                    }
+                }
+                else 
+                {
+                    var names = new List<string>();
+                    for (int i = 0; i < count; i++)
+                    {
+                        names.Add($"blendShape.{mesh.GetBlendShapeName(i)}");
+                    }
+                    var clip = CreateClip(objectName, names, typeof(SkinnedMeshRenderer), values);
+                    SaveAnimationFile(clip, name, script.FolderName, "allNames");
+
                 }
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
             }
         }
-        public static void SaveAnimationFile(string name, string objectName, string assetFolder, string path, Type type, List<float> values)
+        private static AnimationClip CreateClip(string objectName, string path, Type type, List<float> values) 
         {
             var clip = new AnimationClip { frameRate = 60 };
-            AnimationUtility.SetAnimationClipSettings(clip, new AnimationClipSettings { loopTime = false });
             clip.SetCurve(objectName, type, path, CreateCurve(values, 60));
+            return clip;
+        }
+        private static AnimationClip CreateClip(string objectName, List<string> pathList, Type type, List<float> values)
+        {
+            var clip = new AnimationClip { frameRate = 60 };
+            foreach (string path in pathList)
+            {
+                clip.SetCurve(objectName, type, path, CreateCurve(values, 60));
+            }
+            return clip;
+        }
+        public static void SaveAnimationFile(AnimationClip clip,string name, string assetFolder, string path)
+        {
+            AnimationUtility.SetAnimationClipSettings(clip, new AnimationClipSettings { loopTime = false });
             var assetPath = $"Assets/{assetFolder}/{name}-{path}.anim";
             if (!AssetDatabase.IsValidFolder($"Assets/{assetFolder}")) 
             {
