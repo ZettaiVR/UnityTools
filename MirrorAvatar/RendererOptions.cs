@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 
 #pragma warning disable IDE0051
 public class RendererOptions : MonoBehaviour
@@ -10,13 +11,18 @@ public class RendererOptions : MonoBehaviour
         ForceShow = 2
     }
     public RendererOptionsEnum firstPersonVisibility = RendererOptionsEnum.Default;
-    private RendererOptionsEnum previousFirstPersonVisibility = RendererOptionsEnum.Default;    
+    private RendererOptionsEnum previousFirstPersonVisibility = RendererOptionsEnum.Default;
     private MirrorAvatar mirrorAvatar;
     internal Renderer myRenderer;
+    private List<Transform> myTransforms = new List<Transform>();
     void Start()
     {
         FindScript();
-        gameObject.TryGetComponent(out myRenderer);
+        if (!gameObject.TryGetComponent(out myRenderer))
+        {
+            transform.GetComponentsInChildren(true, myTransforms); 
+            UpdateTransforms();
+        }
         if (mirrorAvatar)
             mirrorAvatar.AddRendererOptions(this);
     }
@@ -27,55 +33,69 @@ public class RendererOptions : MonoBehaviour
     private void OnDestroy()
     {
         if (mirrorAvatar)
-            mirrorAvatar.RemoveRendererOptions(transform);
+        {
+            mirrorAvatar.RemoveRendererOptions(transform); 
+            foreach (var t in myTransforms)
+            {
+                mirrorAvatar.skinnedMeshRendererTransformOptions[t] = RendererOptionsEnum.Default;
+            }
+        }
     }
     void OnDidApplyAnimationProperties()
     {
+        if (firstPersonVisibility == previousFirstPersonVisibility)
+            return;
+
         if (!mirrorAvatar)
             FindScript();
-         
-        if (!mirrorAvatar || firstPersonVisibility == previousFirstPersonVisibility)
+
+        if (!mirrorAvatar)
             return;
-         
+
         previousFirstPersonVisibility = firstPersonVisibility;
-        if (mirrorAvatar)
-            mirrorAvatar.optionsChanged = true;
+
+        UpdateTransforms();
+
+        if (!myRenderer)
+            return;
+
         switch (firstPersonVisibility)
         {
             case RendererOptionsEnum.Default:
                 {
-                    if (myRenderer)
-                    {
-                        mirrorAvatar.RenderersToShow.Remove(myRenderer);
-                        mirrorAvatar.RenderersToHide.Remove(myRenderer);
-                    }
-                    return;
+                    mirrorAvatar.RenderersToShow.Remove(myRenderer);
+                    mirrorAvatar.RenderersToHide.Remove(myRenderer);
+                    break;
                 }
             case RendererOptionsEnum.ForceHide:
                 {
-                    if (myRenderer)
+
+                    if (!mirrorAvatar.RenderersToHide.Contains(myRenderer))
                     {
-                        if (!mirrorAvatar.RenderersToHide.Contains(myRenderer))
-                        {
-                            mirrorAvatar.RenderersToHide.Add(myRenderer);
-                        }
-                        mirrorAvatar.RenderersToShow.Remove(myRenderer);
+                        mirrorAvatar.RenderersToHide.Add(myRenderer);
                     }
-                    return;
+                    mirrorAvatar.RenderersToShow.Remove(myRenderer);
+                    break;
                 }
             case RendererOptionsEnum.ForceShow:
                 {
-                    if (myRenderer)
+                    if (!mirrorAvatar.RenderersToShow.Contains(myRenderer))
                     {
-                        if (!mirrorAvatar.RenderersToShow.Contains(myRenderer))
-                        {
-                            mirrorAvatar.RenderersToShow.Add(myRenderer);
-                        }
-                        mirrorAvatar.RenderersToHide.Remove(myRenderer);
+                        mirrorAvatar.RenderersToShow.Add(myRenderer);
                     }
-                    return;
+                    mirrorAvatar.RenderersToHide.Remove(myRenderer);
+                    break;
                 }
         }
+    }
+
+    private void UpdateTransforms()
+    {
+        foreach (var t in myTransforms)
+        {
+            mirrorAvatar.skinnedMeshRendererTransformOptions[t] = firstPersonVisibility;
+        }
+        mirrorAvatar.optionsChanged = true;
     }
 }
 
