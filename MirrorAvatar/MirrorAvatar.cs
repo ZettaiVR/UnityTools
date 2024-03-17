@@ -20,16 +20,22 @@ public static class MirrorAvatarExtentions
 }
 public class MirrorAvatar : MonoBehaviour
 {
+    //todo: child transforms of head bone should be 0 scale
+
+
     public float MaxDistance = 0.5f;        //set it based on avatar scale/height
     public List<Renderer> RenderersToHide = new List<Renderer>();  //if a renderer is in both it will be hidden
     public List<Renderer> RenderersToShow = new List<Renderer>();
     public readonly Dictionary<Transform, RendererOptions.RendererOptionsEnum> skinnedMeshRendererTransformOptions = new Dictionary<Transform, RendererOptions.RendererOptionsEnum>();
+    public bool trueZeroScale = false;
 
     private const string OverrideHideTag = "[HideInView]";
     private const string OverrideShowTag = "[ShowInView]";
     private const string MainCamera = "MainCamera";
     private const UnityEngine.Rendering.ShadowCastingMode shadowsOnly = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
     private static readonly Vector3 ZeroScale = new Vector3(0.0001f, 0.0001f, 0.0001f);
+    private static readonly Vector3 TrueZeroScale = new Vector3(0f, 0f, 0f);
+
 
     private int ShadowCloneLayer = 0;
     private int frameIndex = 0;
@@ -400,10 +406,10 @@ public class MirrorAvatar : MonoBehaviour
             isSkinned = skinned,
             originalSmr = originalSmr,
             cloneSmr = cloneSmr,
-            sharedMesh = originalSmr.sharedMesh,
-            originalMaterials = originalSmr.sharedMaterials,
-            cloneMaterials = cloneSmr.sharedMaterials,
-            previousBlendshapeValues = new float[blendShapeCount],
+            sharedMesh = originalSmr ? originalSmr.sharedMesh : null,
+            originalMaterials = renderer.sharedMaterials,
+            cloneMaterials = cloneRenderer.sharedMaterials,
+            previousBlendshapeValues = blendShapeCount > 0 ? new float[blendShapeCount] : null,
         };
         RendererShadowClones.Add(clone);
         var previousValues = clone.previousBlendshapeValues;
@@ -454,7 +460,7 @@ public class MirrorAvatar : MonoBehaviour
                 tempTransforms.Clear();
                 tempTransforms.AddRange(bones);
                 var mesh = skinnedMeshRenderer.sharedMesh;
-                if (mesh.isReadable) 
+                if (mesh && mesh.isReadable) 
                 {
                     var weights = mesh.GetAllBoneWeights();
                     var weightsLength = weights.Length;
@@ -571,7 +577,7 @@ public class MirrorAvatar : MonoBehaviour
             zeroTransform = zeroBone.transform;
             zeroTransform.name = name;
             zeroTransform.SetParent(bone);
-            zeroTransform.localScale = ZeroScale;
+            zeroTransform.localScale = trueZeroScale ? TrueZeroScale : ZeroScale;
             zeroTransform.localPosition = Vector3.zero;
             boneToZeroBone[bone] = zeroTransform;
         }
@@ -624,25 +630,29 @@ public class MirrorAvatar : MonoBehaviour
             if (!isEnabled)
                 continue;
 
-            var originalSmr = item.originalSmr;
-            var cloneSmr = item.cloneSmr;
+            var original = item.original;
+            var clone = item.clone;
             // materials                        
-            originalSmr.GetSharedMaterials(originalSmrSharedMaterials);
+            original.GetSharedMaterials(originalSmrSharedMaterials);
             for (int i = 0; i < originalSmrSharedMaterials.Count; i++)
             {
                 if (originalSmrSharedMaterials[i] != item.cloneMaterials[i]) 
                 {
-                    cloneSmr.sharedMaterials[i] = item.cloneMaterials[i] = originalSmrSharedMaterials[i];
+                    clone.sharedMaterials[i] = item.cloneMaterials[i] = originalSmrSharedMaterials[i];
                 }
             }
             // material properties
-            originalSmr.GetPropertyBlock(properties);
-            cloneSmr.SetPropertyBlock(properties);
+            original.GetPropertyBlock(properties);
+            clone.SetPropertyBlock(properties);
 
             // copy blendshapes
             if (item.isSkinned)
             {
                 var previousValues = item.previousBlendshapeValues;
+
+                var originalSmr = item.originalSmr;
+                var cloneSmr = item.cloneSmr;
+
                 for (int i = 0; i < item.BlendShapeCount; i++)
                 {
                     var value = originalSmr.GetBlendShapeWeight(i);
@@ -658,10 +668,10 @@ public class MirrorAvatar : MonoBehaviour
     public void OnPreRenderShrink(Camera cam)
     {
         UpdatePerFrame();
-        isActive = Vector3.Distance(cam.transform.position, headPosition) < MaxDistance;
-        if (!isActive || !cam.CompareTag(MainCamera))
+        isActive = cam.CompareTag(MainCamera) && Vector3.Distance(cam.transform.position, headPosition) < MaxDistance;
+        if (!isActive )  // || !cam.CompareTag(MainCamera))
             return;
-        ShrinkMeshes();     
+        ShrinkMeshes();
     }
     public void OnPostRenderShrink(Camera cam)
     {
