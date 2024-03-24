@@ -749,7 +749,13 @@ public class MirrorReflection : MonoBehaviour
             pixelRect = new Rect(0, 0, textureWidth, textureHeight);
             return true;
         }
-
+        if (width == 0 || height == 0)
+        {
+            frustum = Matrix4x4.zero;
+            bounds = new Rect();
+            pixelRect = new Rect();
+            return false;
+        }
 
         leftClamped = (int)((leftClamped * textureWidth) + 0.5f);
         rightClamped = (int)((rightClamped * textureWidth) + 0.5f);
