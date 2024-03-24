@@ -13,43 +13,43 @@ using UnityEditor;
 [ExecuteInEditMode] // Make mirror live-update even when not in play mode
 public class MirrorReflection : MonoBehaviour
 {
-	private const string MirrorShaderName = "FX/MirrorReflection2";
-	private const string MirrorDepthShaderName = "FX/MirrorDepth";
-	private const string LeftEyeTextureName = "_ReflectionTexLeft";
-	private const string RightEyeTextureName = "_ReflectionTexRight";
-	private const string ReflectionCameraName = "MirrorReflection Camera";
+    private const string MirrorShaderName = "FX/MirrorReflection2";
+    private const string MirrorDepthShaderName = "FX/MirrorDepth";
+    private const string LeftEyeTextureName = "_ReflectionTexLeft";
+    private const string RightEyeTextureName = "_ReflectionTexRight";
+    private const string ReflectionCameraName = "MirrorReflection Camera";
 
-	public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x8;
-	public bool MoveMirrorCamera = true;
-	public bool useVRAMOptimization = true;
-	public bool m_DisablePixelLights = true;
-	[Range(0.01f, 1f)]
-	public float MaxTextureSizePercent = 1.0f;  // this should be a setting in config
-	public LayerMask m_ReflectLayers = -1;
-	public bool useAverageNormals = true;
-	public bool useMask;
+    public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x8;
+    public bool MoveMirrorCamera = true;
+    public bool useVRAMOptimization = true;
+    public bool m_DisablePixelLights = true;
+    [Range(0.01f, 1f)]
+    public float MaxTextureSizePercent = 1.0f;  // this should be a setting in config
+    public LayerMask m_ReflectLayers = -1;
+    public bool useAverageNormals = true;
+    public bool useMask;
     public bool useMesh;
     public bool useFrustum;
     [Unity.XR.CoreUtils.ReadOnly] public bool useMsaaTexture;
     [Unity.XR.CoreUtils.ReadOnly] public bool didRender;
-    
-	private bool hasCorners;
+
+    private bool hasCorners;
     private int actualMsaa;
-	private int width;
-	private int height;
-	private Camera m_ReflectionCamera;
-	private CommandBuffer commandBufferClearRenderTargetToZero;
+    private int width;
+    private int height;
+    private Camera m_ReflectionCamera;
+    private CommandBuffer commandBufferClearRenderTargetToZero;
     private CommandBuffer commandBufferClearRenderTargetToOne;
     private CommandBuffer commandBufferDrawMesh;
     private CommandBuffer commandBufferSetRectFull;
     private CommandBuffer commandBufferSetRectLimited;
     private Material[] m_MaterialsInstanced;
-	private RenderTexture m_ReflectionTextureMSAA;
+    private RenderTexture m_ReflectionTextureMSAA;
     private RenderTexture m_ReflectionTextureLeft;
-	private RenderTexture m_ReflectionTextureRight;
-	private Renderer m_Renderer;
-	private Mesh m_Mesh;
-	private Vector3 mirrorNormal = Vector3.zero;
+    private RenderTexture m_ReflectionTextureRight;
+    private Renderer m_Renderer;
+    private Mesh m_Mesh;
+    private Vector3 mirrorNormal = Vector3.zero;
     private Vector3 mirrorNormalAvg = Vector3.zero;
     private Vector3x4 meshCorners;
     private Matrix4x4 m_LocalToWorldMatrix;
@@ -58,12 +58,12 @@ public class MirrorReflection : MonoBehaviour
     private readonly List<Material> m_savedSharedMaterials = new List<Material>();   // Only relevant for the editor
 #endif
 
-	private static int LeftEyeTextureID = -1;
-	private static int RightEyeTextureID = -1;
-	private static bool s_InsideRendering = false;
-	private static Material m_DepthMaterial;
-	private static readonly Dictionary<Camera, Skybox> SkyboxDict = new Dictionary<Camera, Skybox>();
-	private static readonly List<Material> m_tempSharedMaterials = new List<Material>();
+    private static int LeftEyeTextureID = -1;
+    private static int RightEyeTextureID = -1;
+    private static bool s_InsideRendering = false;
+    private static Material m_DepthMaterial;
+    private static readonly Dictionary<Camera, Skybox> SkyboxDict = new Dictionary<Camera, Skybox>();
+    private static readonly List<Material> m_tempSharedMaterials = new List<Material>();
     private static readonly List<Vector3> vertices = new List<Vector3>();
     private static readonly List<Vector3> mirrorVertices = new List<Vector3>();
     private static readonly List<int> indicies = new List<int>();
@@ -74,26 +74,26 @@ public class MirrorReflection : MonoBehaviour
     private static readonly Plane[] planes = new Plane[6];
 
     public enum AntiAliasing
-	{
-		Default = 0,
-		MSAA_Off = 1,
-		MSAA_x2 = 2,
-		MSAA_x4 = 4,
-		MSAA_x8 = 8,
-	}
+    {
+        Default = 0,
+        MSAA_Off = 1,
+        MSAA_x2 = 2,
+        MSAA_x4 = 4,
+        MSAA_x8 = 8,
+    }
 #if UNITY_EDITOR
-	// Revert the instantiated materials to the originals
-	void ModeChanged(PlayModeStateChange playModeState)
-	{
-		if (playModeState == PlayModeStateChange.EnteredEditMode)
-		{
-			if (m_Renderer != null && m_savedSharedMaterials.Count > 0)
-				m_Renderer.sharedMaterials = m_savedSharedMaterials.ToArray();
-		}
-	}
-	
+    // Revert the instantiated materials to the originals
+    void ModeChanged(PlayModeStateChange playModeState)
+    {
+        if (playModeState == PlayModeStateChange.EnteredEditMode)
+        {
+            if (m_Renderer != null && m_savedSharedMaterials.Count > 0)
+                m_Renderer.sharedMaterials = m_savedSharedMaterials.ToArray();
+        }
+    }
+
 #endif
-	private void Start()
+    private void Start()
     {
 #if UNITY_EDITOR
         EditorApplication.playModeStateChanged += ModeChanged;
@@ -102,28 +102,28 @@ public class MirrorReflection : MonoBehaviour
         gameObject.layer = 4;
 
 
-        if (!m_DepthMaterial) 
-		{
-			CreateMirrorMaskMaterial();
-		}
+        if (!m_DepthMaterial)
+        {
+            CreateMirrorMaskMaterial();
+        }
 
         m_Renderer = GetComponent<Renderer>();
-		if (!m_Renderer)
-		{
-			enabled = false;
-			return;
-		}
-		else 
-		{
-			if (m_Renderer is SkinnedMeshRenderer smr)
-			{
-				m_Mesh = smr.sharedMesh; // don't
-			}
-			else if (m_Renderer.TryGetComponent<MeshFilter>(out var filter))
-			{
+        if (!m_Renderer)
+        {
+            enabled = false;
+            return;
+        }
+        else
+        {
+            if (m_Renderer is SkinnedMeshRenderer smr)
+            {
+                m_Mesh = smr.sharedMesh; // don't
+            }
+            else if (m_Renderer.TryGetComponent<MeshFilter>(out var filter))
+            {
                 m_Mesh = filter.sharedMesh;
             }
-		}
+        }
         if (LeftEyeTextureID < 0 || RightEyeTextureID < 0)
         {
             LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
@@ -285,11 +285,11 @@ public class MirrorReflection : MonoBehaviour
 
     private void CreateMirrorMaskMaterial()
     {
-		var shader = Shader.Find(MirrorDepthShaderName);
-		if (shader)
-		{
-			m_DepthMaterial = new Material(shader);
-		}
+        var shader = Shader.Find(MirrorDepthShaderName);
+        if (shader)
+        {
+            m_DepthMaterial = new Material(shader);
+        }
     }
 
     private void CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name)
@@ -307,110 +307,110 @@ public class MirrorReflection : MonoBehaviour
 
     private void OnDestroy()
     {
-		if (m_MaterialsInstanced == null || m_MaterialsInstanced.Length == 0)
-			return;
+        if (m_MaterialsInstanced == null || m_MaterialsInstanced.Length == 0)
+            return;
         for (int i = 0; i < m_MaterialsInstanced.Length; i++)
         {
-			DestroyImmediate(m_MaterialsInstanced[i]);
-		}
-	}
+            DestroyImmediate(m_MaterialsInstanced[i]);
+        }
+    }
 
     // This is called when it's known that the object will be rendered by some
     // camera. We render reflections and do other updates here.
     // Because the script executes in edit mode, reflections for the scene view
     // camera will just work!
     public void OnWillRenderObject()
-	{
-		didRender = false;
+    {
+        didRender = false;
         if (!enabled || !m_Renderer || !m_Renderer.enabled)
-			return;
-		m_Renderer.GetSharedMaterials(m_tempSharedMaterials); 
-		if (m_tempSharedMaterials.Count == 0)
-			return;
-		Camera currentCam = Camera.current;
+            return;
+        m_Renderer.GetSharedMaterials(m_tempSharedMaterials);
+        if (m_tempSharedMaterials.Count == 0)
+            return;
+        Camera currentCam = Camera.current;
         bool isStereo = currentCam.stereoEnabled;
 
         // Safeguard from recursive reflections.        
         if (s_InsideRendering || !currentCam)
-			return;
-		// Rendering will happen.
+            return;
+        // Rendering will happen.
 
-		// Force mirrors to Water layer
-		if (gameObject.layer != 4) 
-			gameObject.layer = 4;
-		actualMsaa = (int)MockMSAALevel;	//	pretend we have a config setting for this somewhere
-		if (actualMsaa == 0)
-		{
-			// Get actual MSAA level from render texture (if the current camera renders to one) or QualitySettings
-			RenderTexture targetTexture = currentCam.targetTexture;
-			actualMsaa = !(targetTexture != null) ? (QualitySettings.antiAliasing == 0 ? 1 : QualitySettings.antiAliasing) : targetTexture.antiAliasing;
-		}
+        // Force mirrors to Water layer
+        if (gameObject.layer != 4)
+            gameObject.layer = 4;
+        actualMsaa = (int)MockMSAALevel;    //	pretend we have a config setting for this somewhere
+        if (actualMsaa == 0)
+        {
+            // Get actual MSAA level from render texture (if the current camera renders to one) or QualitySettings
+            RenderTexture targetTexture = currentCam.targetTexture;
+            actualMsaa = !(targetTexture != null) ? (QualitySettings.antiAliasing == 0 ? 1 : QualitySettings.antiAliasing) : targetTexture.antiAliasing;
+        }
         // Maximize the mirror texture resolution
         var res = UpdateRenderResolution(currentCam.pixelWidth, currentCam.pixelHeight);
-		width = res.x;
-		height = res.y;
-		var currentCamLtwm = currentCam.transform.localToWorldMatrix;
-		
-		useMsaaTexture = useVRAMOptimization && currentCam.actualRenderingPath == RenderingPath.Forward && actualMsaa > 1;
-		if (useMsaaTexture)
-			SetupRenderTexture(ref m_ReflectionTextureMSAA, width, height, true, actualMsaa, currentCam.allowHDR);
-		else if (m_ReflectionTextureMSAA)
-		{
-			RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
-			m_ReflectionTextureMSAA = null;
-		}
+        width = res.x;
+        height = res.y;
+        var currentCamLtwm = currentCam.transform.localToWorldMatrix;
 
-		// Set flag that we're rendering to a mirror
-		s_InsideRendering = true;
+        useMsaaTexture = useVRAMOptimization && currentCam.actualRenderingPath == RenderingPath.Forward && actualMsaa > 1;
+        if (useMsaaTexture)
+            SetupRenderTexture(ref m_ReflectionTextureMSAA, width, height, true, actualMsaa, currentCam.allowHDR);
+        else if (m_ReflectionTextureMSAA)
+        {
+            RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
+            m_ReflectionTextureMSAA = null;
+        }
 
-		// Optionally disable pixel lights for reflection
-		int oldPixelLightCount = QualitySettings.pixelLightCount;
+        // Set flag that we're rendering to a mirror
+        s_InsideRendering = true;
+
+        // Optionally disable pixel lights for reflection
+        int oldPixelLightCount = QualitySettings.pixelLightCount;
 
         m_LocalToWorldMatrix = transform.localToWorldMatrix;
         Vector3 mirrorPos = m_LocalToWorldMatrix.GetColumn(3);  // transform.position
         Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
 
         if (m_DisablePixelLights)
-			QualitySettings.pixelLightCount = 0;
-		try
-		{
-			if (isStereo)
+            QualitySettings.pixelLightCount = 0;
+        try
+        {
+            if (isStereo)
             {
                 var eye = currentCam.stereoActiveEye;
-                bool singlePass = XRSettings.stereoRenderingMode != XRSettings.StereoRenderingMode.MultiPass; 
-				bool renderLeft = singlePass || eye == Camera.MonoOrStereoscopicEye.Left;
+                bool singlePass = XRSettings.stereoRenderingMode != XRSettings.StereoRenderingMode.MultiPass;
+                bool renderLeft = singlePass || eye == Camera.MonoOrStereoscopicEye.Left;
                 bool renderRight = singlePass || eye == Camera.MonoOrStereoscopicEye.Right;
                 if (renderLeft)
                     RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Left, ref m_ReflectionTextureLeft);
                 if (renderRight)
                     RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Right, ref m_ReflectionTextureRight);
-			}
-			else 
-			{
-				RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Mono, ref m_ReflectionTextureLeft);
-			}
-		}
-		finally
-		{
-			s_InsideRendering = false; 
-			if (m_DisablePixelLights)
-				QualitySettings.pixelLightCount = oldPixelLightCount;
-			if (useMsaaTexture || m_ReflectionTextureMSAA != null)
-			{
-				try
-				{
-					RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
-				}
-				catch (NullReferenceException)
+            }
+            else
+            {
+                RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Mono, ref m_ReflectionTextureLeft);
+            }
+        }
+        finally
+        {
+            s_InsideRendering = false;
+            if (m_DisablePixelLights)
+                QualitySettings.pixelLightCount = oldPixelLightCount;
+            if (useMsaaTexture || m_ReflectionTextureMSAA != null)
+            {
+                try
+                {
+                    RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
+                }
+                catch (NullReferenceException)
                 { }
-			}
-		}
-	}
+            }
+        }
+    }
 
-	private Vector2Int UpdateRenderResolution(int width, int height)
-	{
-		var max = Mathf.Clamp01(MaxTextureSizePercent);
-		return new Vector2Int((int)(width * max + 0.5f), (int)(height * max + 0.5f));
+    private Vector2Int UpdateRenderResolution(int width, int height)
+    {
+        var max = Mathf.Clamp01(MaxTextureSizePercent);
+        return new Vector2Int((int)(width * max + 0.5f), (int)(height * max + 0.5f));
     }
     private static void SetupRenderTexture(ref RenderTexture rt, int width, int height, bool depth, int msaa, bool allowHDR)
     {
@@ -439,18 +439,18 @@ public class MirrorReflection : MonoBehaviour
         return true;
     }
     private void RenderCamera(Camera currentCam, in Matrix4x4 localToWorldMatrix, in Vector3 mirrorPos, in Vector3 normal, Camera.MonoOrStereoscopicEye eye, ref RenderTexture reflectionTexture)
-	{
+    {
         bool isStereo = eye != Camera.MonoOrStereoscopicEye.Mono;
         if (!IsVisible(localToWorldMatrix, currentCam.stereoSeparation, eye, mirrorPos, normal, isStereo))
             return;
-        
+
         CreateMirrorObjects(useMsaaTexture, ref reflectionTexture, currentCam.allowHDR);
-		UpdateCameraModes(currentCam, m_ReflectionCamera);
+        UpdateCameraModes(currentCam, m_ReflectionCamera);
         var targetTexture = useMsaaTexture ? m_ReflectionTextureMSAA : reflectionTexture;
 
         m_ReflectionCamera.useOcclusionCulling = false;
-		m_ReflectionCamera.depthTextureMode = currentCam.depthTextureMode | DepthTextureMode.Depth;
-		m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
+        m_ReflectionCamera.depthTextureMode = currentCam.depthTextureMode | DepthTextureMode.Depth;
+        m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
         m_ReflectionCamera.cullingMask = -17 & m_ReflectLayers.value; // mirrors never render the water layer, as they are on the water layer. mask: 1111 1111 1111 1111 1111 1111 1110 1111
 
@@ -461,39 +461,39 @@ public class MirrorReflection : MonoBehaviour
         // Reflect camera around reflection plane
         Matrix4x4 worldToCameraMatrix = CalculateReflectionMatrix(reflectionPlane);
 
-		var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
+        var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
         worldToCameraMatrix = m_InversionMatrix * viewMatrix * worldToCameraMatrix;
-		m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
-		if (MoveMirrorCamera)
-		{
-			var wtinv = worldToCameraMatrix.inverse;
+        m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
+        if (MoveMirrorCamera)
+        {
+            var wtinv = worldToCameraMatrix.inverse;
             m_ReflectionCamera.transform.SetPositionAndRotation(wtinv.MultiplyPoint(Vector3.zero), wtinv.rotation);
         }
-		// Setup oblique projection matrix so that near plane is our reflection plane.
-		// This way we clip everything below/above it for free.
-		Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, mirrorPos, normal, 1.0f);
+        // Setup oblique projection matrix so that near plane is our reflection plane.
+        // This way we clip everything below/above it for free.
+        Vector4 clipPlane = CameraSpacePlane(worldToCameraMatrix, mirrorPos, normal, 1.0f);
 
-		var projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
+        var projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
         m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
 
 
-		if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix, out var frustum, out Rect bounds, out Rect pixelRect)) 
-		{
-			return;
-		}
-		bool willUseFrustum = false;
-		bool validRect = false;
+        if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix, out var frustum, out Rect bounds, out Rect pixelRect))
+        {
+            return;
+        }
+        bool willUseFrustum = false;
+        bool validRect = false;
 
         if (hasCorners && pixelRect.height >= 1 && pixelRect.width >= 1 && (bounds.width < 0.95f || bounds.height < 0.95f))
         {
-			validRect = true;
+            validRect = true;
         }
-		if (useFrustum && validRect)
-		{
-			m_ReflectionCamera.pixelRect = pixelRect;
-			m_ReflectionCamera.projectionMatrix = frustum;
-			willUseFrustum = true;
-		}
+        if (useFrustum && validRect)
+        {
+            m_ReflectionCamera.pixelRect = pixelRect;
+            m_ReflectionCamera.projectionMatrix = frustum;
+            willUseFrustum = true;
+        }
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
         if (useMask)
         {
@@ -510,15 +510,15 @@ public class MirrorReflection : MonoBehaviour
         if (useMsaaTexture)
             CopyTexture(reflectionTexture);
         foreach (Material mat in m_tempSharedMaterials)
-		{
-			if (eye != Camera.MonoOrStereoscopicEye.Right)
-			{
-				if (mat.HasProperty(LeftEyeTextureID))
-					mat.SetTexture(LeftEyeTextureID, reflectionTexture);
-			}
-			else if (mat.HasProperty(RightEyeTextureID))
-				mat.SetTexture(RightEyeTextureID, reflectionTexture);
-		}
+        {
+            if (eye != Camera.MonoOrStereoscopicEye.Right)
+            {
+                if (mat.HasProperty(LeftEyeTextureID))
+                    mat.SetTexture(LeftEyeTextureID, reflectionTexture);
+            }
+            else if (mat.HasProperty(RightEyeTextureID))
+                mat.SetTexture(RightEyeTextureID, reflectionTexture);
+        }
     }
 
     private void CopyTexture(RenderTexture reflectionTexture)
@@ -565,7 +565,7 @@ public class MirrorReflection : MonoBehaviour
             return;
 
         commandBufferClearRenderTargetToZero.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 0);
-		commandBufferClearRenderTargetToOne.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 1);
+        commandBufferClearRenderTargetToOne.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 1);
 
 
         if (m_Mesh)
@@ -582,121 +582,121 @@ public class MirrorReflection : MonoBehaviour
 
     // Cleanup all the objects we possibly have created
     void OnDisable()
-	{
-		if (m_ReflectionTextureLeft)
-		{
-			RenderTexture.ReleaseTemporary(m_ReflectionTextureLeft);
-			m_ReflectionTextureLeft = null;
-		}
-		if (m_ReflectionTextureRight)
-		{
-			RenderTexture.ReleaseTemporary(m_ReflectionTextureRight);
-			m_ReflectionTextureRight = null;
-		}
-		if (m_ReflectionTextureMSAA)
-		{
-			RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
-			m_ReflectionTextureMSAA = null;
-		}
-	}
+    {
+        if (m_ReflectionTextureLeft)
+        {
+            RenderTexture.ReleaseTemporary(m_ReflectionTextureLeft);
+            m_ReflectionTextureLeft = null;
+        }
+        if (m_ReflectionTextureRight)
+        {
+            RenderTexture.ReleaseTemporary(m_ReflectionTextureRight);
+            m_ReflectionTextureRight = null;
+        }
+        if (m_ReflectionTextureMSAA)
+        {
+            RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
+            m_ReflectionTextureMSAA = null;
+        }
+    }
     private void UpdateCameraModes(Camera src, Camera dest)
-	{
-		if (!dest)
-			return;
-		// set camera to clear the same way as current camera
-		dest.CopyFrom(src);
-		if (src.clearFlags == CameraClearFlags.Skybox)
-		{
-			Skybox sky = GetSkybox(src);
-			Skybox mysky = GetSkybox(dest);
-			if (!mysky)
-				return;
-			if (!sky || !sky.material)
-			{
-				mysky.enabled = false;
-			}
-			else
-			{
-				mysky.enabled = true;
-				mysky.material = sky.material;
-			}
-		}
-	}
-	private Skybox GetSkybox(Camera camera) 
-	{
-		if (!SkyboxDict.TryGetValue(camera, out Skybox skybox)) 
-		{
-			SkyboxDict[camera] = camera.GetComponent<Skybox>();
-		}
-		return skybox;
-	}
+    {
+        if (!dest)
+            return;
+        // set camera to clear the same way as current camera
+        dest.CopyFrom(src);
+        if (src.clearFlags == CameraClearFlags.Skybox)
+        {
+            Skybox sky = GetSkybox(src);
+            Skybox mysky = GetSkybox(dest);
+            if (!mysky)
+                return;
+            if (!sky || !sky.material)
+            {
+                mysky.enabled = false;
+            }
+            else
+            {
+                mysky.enabled = true;
+                mysky.material = sky.material;
+            }
+        }
+    }
+    private Skybox GetSkybox(Camera camera)
+    {
+        if (!SkyboxDict.TryGetValue(camera, out Skybox skybox))
+        {
+            SkyboxDict[camera] = camera.GetComponent<Skybox>();
+        }
+        return skybox;
+    }
 
-	// On-demand create any objects we need
-	private void CreateMirrorObjects(bool useMsaaTexture, ref RenderTexture reflectionTexture, bool allowHDR)
-	{
-		// Reflection render texture
-		int msaa = useMsaaTexture ? 1 : actualMsaa;
+    // On-demand create any objects we need
+    private void CreateMirrorObjects(bool useMsaaTexture, ref RenderTexture reflectionTexture, bool allowHDR)
+    {
+        // Reflection render texture
+        int msaa = useMsaaTexture ? 1 : actualMsaa;
         SetupRenderTexture(ref reflectionTexture, width, height, !useMsaaTexture, msaa, allowHDR);
-		
-		if (m_ReflectionCamera != null)
-			return;	// Camera already exists
 
-		// Create Camera for reflection
+        if (m_ReflectionCamera != null)
+            return; // Camera already exists
 
-		GameObject cameraGameObject = new GameObject(ReflectionCameraName);
-		cameraGameObject.transform.SetParent(transform);
-		cameraGameObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-		m_ReflectionCamera = cameraGameObject.AddComponent<Camera>();
-		SkyboxDict[m_ReflectionCamera] = cameraGameObject.AddComponent<Skybox>();
-		m_ReflectionCamera.enabled = false;
-		m_ReflectionCamera.gameObject.AddComponent<FlareLayer>();
-		m_ReflectionCamera.clearFlags = CameraClearFlags.Nothing;
+        // Create Camera for reflection
+
+        GameObject cameraGameObject = new GameObject(ReflectionCameraName);
+        cameraGameObject.transform.SetParent(transform);
+        cameraGameObject.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        m_ReflectionCamera = cameraGameObject.AddComponent<Camera>();
+        SkyboxDict[m_ReflectionCamera] = cameraGameObject.AddComponent<Skybox>();
+        m_ReflectionCamera.enabled = false;
+        m_ReflectionCamera.gameObject.AddComponent<FlareLayer>();
+        m_ReflectionCamera.clearFlags = CameraClearFlags.Nothing;
         cameraGameObject.hideFlags = HideFlags.DontSave;//HideAnd
     }
 
-	public static bool Visible(in Vector3 viewPosition, in Vector3 objectPosition, in Vector3 objectNormal)
-	{
-		return Vector3.Dot(viewPosition - objectPosition, objectNormal) > 0;
-	}
-	
+    public static bool Visible(in Vector3 viewPosition, in Vector3 objectPosition, in Vector3 objectNormal)
+    {
+        return Vector3.Dot(viewPosition - objectPosition, objectNormal) > 0;
+    }
+
 
     // Given position/normal of the plane, calculates plane in camera space.
     public static Vector4 CameraSpacePlane(Matrix4x4 worldToCameraMatrix, Vector3 pos, Vector3 normal, float sideSign)
-	{
-		Vector3 lhs = worldToCameraMatrix.MultiplyPoint(pos);
-		Vector3 rhs = worldToCameraMatrix.MultiplyVector(normal).normalized * sideSign;
-		return new Vector4(rhs.x, rhs.y, rhs.z, -Vector3.Dot(lhs, rhs));
-	}
+    {
+        Vector3 lhs = worldToCameraMatrix.MultiplyPoint(pos);
+        Vector3 rhs = worldToCameraMatrix.MultiplyVector(normal).normalized * sideSign;
+        return new Vector4(rhs.x, rhs.y, rhs.z, -Vector3.Dot(lhs, rhs));
+    }
 
-	// Calculates reflection matrix around the given plane
-	public static Matrix4x4 CalculateReflectionMatrix(Vector4 plane)
-	{
-		float x = plane.x;
-		float y = plane.y;
-		float z = plane.z;
-		float w = plane.w;	
-	
-	    column0.x = (1F - 2F * x * x);
-		column1.x = (-2F * x * y);
-		column2.x = (-2F * x * z);
-		column3.x = (-2F * w * x);
+    // Calculates reflection matrix around the given plane
+    public static Matrix4x4 CalculateReflectionMatrix(Vector4 plane)
+    {
+        float x = plane.x;
+        float y = plane.y;
+        float z = plane.z;
+        float w = plane.w;
 
-		column0.y = (-2F * y * x);
-		column1.y = (1F - 2F * y * y);
-		column2.y = (-2F * y * z);
-		column3.y = (-2F * w * y);
+        column0.x = (1F - 2F * x * x);
+        column1.x = (-2F * x * y);
+        column2.x = (-2F * x * z);
+        column3.x = (-2F * w * x);
 
-		column0.z = (-2F * z * x);
-		column1.z = (-2F * z * y);
-		column2.z = (1F - 2F * z * z);
-		column3.z = (-2F * w * z);
+        column0.y = (-2F * y * x);
+        column1.y = (1F - 2F * y * y);
+        column2.y = (-2F * y * z);
+        column3.y = (-2F * w * y);
 
-		return new Matrix4x4(column0, column1, column2, column3);
-	}
-	private static Vector4 column0 = new Vector4(0, 0, 0, 0);
-	private static Vector4 column1 = new Vector4(0, 0, 0, 0);
-	private static Vector4 column2 = new Vector4(0, 0, 0, 0);
-	private static Vector4 column3 = new Vector4(0, 0, 0, 1);
+        column0.z = (-2F * z * x);
+        column1.z = (-2F * z * y);
+        column2.z = (1F - 2F * z * z);
+        column3.z = (-2F * w * z);
+
+        return new Matrix4x4(column0, column1, column2, column3);
+    }
+    private static Vector4 column0 = new Vector4(0, 0, 0, 0);
+    private static Vector4 column1 = new Vector4(0, 0, 0, 0);
+    private static Vector4 column2 = new Vector4(0, 0, 0, 0);
+    private static Vector4 column3 = new Vector4(0, 0, 0, 1);
 
 
     public bool TryGetRectPixel(Camera camera, Matrix4x4 ltwm, out Matrix4x4 frustum, out Rect bounds, out Rect pixelRect)
@@ -749,7 +749,7 @@ public class MirrorReflection : MonoBehaviour
             pixelRect = new Rect(0, 0, textureWidth, textureHeight);
             return true;
         }
-        
+
 
         leftClamped = (int)((leftClamped * textureWidth) + 0.5f);
         rightClamped = (int)((rightClamped * textureWidth) + 0.5f);
@@ -800,7 +800,7 @@ public class MirrorReflection : MonoBehaviour
         Vector3 I;
         var center = camera.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero);
         GeometryUtility.CalculateFrustumPlanes(camera, planes);
-        
+
         for (int i = 0; i < screenCorners.Length; i++)
         {
             if (screenCorners[i].z < 0f)
