@@ -260,7 +260,7 @@ public class MirrorReflection : MonoBehaviour
         }
 
         mirrorNormalAvg = allNormals.normalized;
-        if (float.IsNaN(mirrorNormalAvg.x) || float.IsInfinity(mirrorNormalAvg.x) || float.IsNaN(mirrorNormalAvg.y) || 
+        if (float.IsNaN(mirrorNormalAvg.x) || float.IsInfinity(mirrorNormalAvg.x) || float.IsNaN(mirrorNormalAvg.y) ||
             float.IsInfinity(mirrorNormalAvg.y) || float.IsNaN(mirrorNormalAvg.z) || float.IsInfinity(mirrorNormalAvg.z))
         {
             mirrorNormalAvg = mirrorNormal;
@@ -925,7 +925,7 @@ public class MirrorReflection : MonoBehaviour
         public Vector3 c1;
         public Vector3 c2;
         public Vector3 c3;
-        public readonly int Length => 4;
+        public int Length => 4;
 
         public Vector3 this[int index]
         {
