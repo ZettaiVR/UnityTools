@@ -30,11 +30,11 @@ public class MirrorReflection : MonoBehaviour
     public bool useMask;
     public bool useMesh;
     public bool useFrustum;
-    [Unity.XR.CoreUtils.ReadOnly] public bool useMsaaTexture;
-    [Unity.XR.CoreUtils.ReadOnly] public bool didRender;
+    public bool didRender;
 
     private bool hasCorners;
     private int actualMsaa;
+    private bool useMsaaTexture;
     private int width;
     private int height;
     private Camera m_ReflectionCamera;
@@ -54,13 +54,12 @@ public class MirrorReflection : MonoBehaviour
     private Vector3x4 meshCorners;
     private Matrix4x4 m_LocalToWorldMatrix;
 
-#if UNITY_EDITOR
     private readonly List<Material> m_savedSharedMaterials = new List<Material>();   // Only relevant for the editor
-#endif
 
     private static int LeftEyeTextureID = -1;
     private static int RightEyeTextureID = -1;
     private static bool s_InsideRendering = false;
+    private static bool copySupported;
     private static Material m_DepthMaterial;
     private static readonly Dictionary<Camera, Skybox> SkyboxDict = new Dictionary<Camera, Skybox>();
     private static readonly List<Material> m_tempSharedMaterials = new List<Material>();
@@ -98,6 +97,8 @@ public class MirrorReflection : MonoBehaviour
 #if UNITY_EDITOR
         EditorApplication.playModeStateChanged += ModeChanged;
 #endif
+        copySupported = SystemInfo.copyTextureSupport.HasFlag(CopyTextureSupport.Basic);
+
         // Move mirror to water layer
         gameObject.layer = 4;
 
@@ -259,7 +260,8 @@ public class MirrorReflection : MonoBehaviour
         }
 
         mirrorNormalAvg = allNormals.normalized;
-        if (!float.IsFinite(mirrorNormalAvg.x) || !float.IsFinite(mirrorNormalAvg.y) || !float.IsFinite(mirrorNormalAvg.z))
+        if (float.IsNaN(mirrorNormalAvg.x) || float.IsInfinity(mirrorNormalAvg.x) || float.IsNaN(mirrorNormalAvg.y) || 
+            float.IsInfinity(mirrorNormalAvg.y) || float.IsNaN(mirrorNormalAvg.z) || float.IsInfinity(mirrorNormalAvg.z))
         {
             mirrorNormalAvg = mirrorNormal;
         }
@@ -296,8 +298,7 @@ public class MirrorReflection : MonoBehaviour
     {
         if (_commandBuffer == null)
         {
-            _commandBuffer = new CommandBuffer();
-            _commandBuffer.name = name;
+            _commandBuffer = new CommandBuffer { name = name };
         }
         else
         {
@@ -351,7 +352,7 @@ public class MirrorReflection : MonoBehaviour
         height = res.y;
         var currentCamLtwm = currentCam.transform.localToWorldMatrix;
 
-        useMsaaTexture = useVRAMOptimization && currentCam.actualRenderingPath == RenderingPath.Forward && actualMsaa > 1;
+        useMsaaTexture = useVRAMOptimization && currentCam.actualRenderingPath == RenderingPath.Forward && actualMsaa > 1 && copySupported;
         if (useMsaaTexture)
             SetupRenderTexture(ref m_ReflectionTextureMSAA, width, height, true, actualMsaa, currentCam.allowHDR);
         else if (m_ReflectionTextureMSAA)
@@ -477,14 +478,14 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
 
 
-        if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix, out var frustum, out Rect bounds, out Rect pixelRect))
+        if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix, out var frustum, out Rect pixelRect))
         {
             return;
         }
         bool willUseFrustum = false;
         bool validRect = false;
 
-        if (hasCorners && pixelRect.height >= 1 && pixelRect.width >= 1 && (bounds.width < 0.95f || bounds.height < 0.95f))
+        if (hasCorners && pixelRect.height >= 1 && pixelRect.width >= 1)
         {
             validRect = true;
         }
@@ -508,7 +509,7 @@ public class MirrorReflection : MonoBehaviour
         didRender = true;
 
         if (useMsaaTexture)
-            CopyTexture(reflectionTexture);
+            CopyTexture(reflectionTexture, pixelRect, validRect);
         foreach (Material mat in m_tempSharedMaterials)
         {
             if (eye != Camera.MonoOrStereoscopicEye.Right)
@@ -521,9 +522,22 @@ public class MirrorReflection : MonoBehaviour
         }
     }
 
-    private void CopyTexture(RenderTexture reflectionTexture)
+    private void CopyTexture(RenderTexture reflectionTexture, Rect rect, bool validRect)
     {
-        Graphics.CopyTexture(m_ReflectionTextureMSAA, reflectionTexture);
+        if (validRect)
+        {
+            var pos = rect.position;
+            var size = rect.size;
+            int x = (int)pos.x;
+            int y = (int)pos.y;
+            int w = (int)size.x;
+            int h = (int)size.y;
+            Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, x, y, w, h, reflectionTexture, 0, 0, x, y);
+        }
+        else
+        {
+            Graphics.CopyTexture(m_ReflectionTextureMSAA, reflectionTexture);
+        }
     }
 
     private void RenderWithCommanBuffers(Rect fullRect, Rect pixelRect, bool willUseFrustum, bool validRect)
@@ -699,7 +713,7 @@ public class MirrorReflection : MonoBehaviour
     private static Vector4 column3 = new Vector4(0, 0, 0, 1);
 
 
-    public bool TryGetRectPixel(Camera camera, Matrix4x4 ltwm, out Matrix4x4 frustum, out Rect bounds, out Rect pixelRect)
+    public bool TryGetRectPixel(Camera camera, Matrix4x4 ltwm, out Matrix4x4 frustum, out Rect pixelRect)
     {
         allCorners.Clear();
         var texture = camera.targetTexture;
@@ -729,7 +743,6 @@ public class MirrorReflection : MonoBehaviour
         if (minZl <= 0 || minZr <= 0 || minZt <= 0 || minZb <= 0)
         {
             frustum = Matrix4x4.zero;
-            bounds = new Rect();
             pixelRect = new Rect();
             return false;
         }
@@ -745,14 +758,12 @@ public class MirrorReflection : MonoBehaviour
         if (!relevant)
         {
             frustum = camera.projectionMatrix;
-            bounds = new Rect(0, 0, 1, 1);
             pixelRect = new Rect(0, 0, textureWidth, textureHeight);
             return true;
         }
         if (width == 0 || height == 0)
         {
             frustum = Matrix4x4.zero;
-            bounds = new Rect();
             pixelRect = new Rect();
             return false;
         }
@@ -776,7 +787,7 @@ public class MirrorReflection : MonoBehaviour
         height = topClamped - bottomClamped;
 
 
-        bounds = new Rect(leftClamped, bottomClamped, width, height);
+        var bounds = new Rect(leftClamped, bottomClamped, width, height);
 
         right = float.MinValue;
         left = float.MaxValue;
@@ -803,7 +814,6 @@ public class MirrorReflection : MonoBehaviour
     /// </summary>
     private void CheckCorners(Vector3x4 screenCorners, Camera camera, Vector3x4 corners)
     {
-        Vector3 I;
         var center = camera.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero);
         GeometryUtility.CalculateFrustumPlanes(camera, planes);
 
@@ -814,7 +824,7 @@ public class MirrorReflection : MonoBehaviour
                 // the last two planes are the near and far clip plane, no need to check those.
                 for (int j = 0; j < 4; j++)
                 {
-                    if (SegmentPlane(corners[i], corners[i + 1], center, planes[j].normal, out I))
+                    if (SegmentPlane(corners[i], corners[i + 1], center, planes[j].normal, out Vector3 I))
                     {
                         var point = camera.WorldToViewportPoint(I);
                         if (point.z > 0.001f)
@@ -923,12 +933,12 @@ public class MirrorReflection : MonoBehaviour
             {
                 switch (index)
                 {
+                    case -1: return c3;
                     case 0: return c0;
                     case 1: return c1;
                     case 2: return c2;
                     case 3: return c3;
                     case 4: return c0;
-                    case -1: return c3;
                     default: return Vector3.zero;
                 }
             }
