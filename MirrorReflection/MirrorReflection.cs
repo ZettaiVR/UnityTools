@@ -20,6 +20,7 @@ public class MirrorReflection : MonoBehaviour
     private const string ReflectionCameraName = "MirrorReflection Camera";
 
     public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x8;
+    public int resolutionLimit = 4096;
     public bool MoveMirrorCamera = true;
     public bool useVRAMOptimization = true;
     public bool m_DisablePixelLights = true;
@@ -47,6 +48,7 @@ public class MirrorReflection : MonoBehaviour
     private RenderTexture m_ReflectionTextureMSAA;
     private RenderTexture m_ReflectionTextureLeft;
     private RenderTexture m_ReflectionTextureRight;
+    private MaterialPropertyBlock materialPropertyBlock;
     private Renderer m_Renderer;
     private Mesh m_Mesh;
     private Vector3 mirrorNormal = Vector3.zero;
@@ -101,7 +103,7 @@ public class MirrorReflection : MonoBehaviour
 
         // Move mirror to water layer
         gameObject.layer = 4;
-
+        materialPropertyBlock = new MaterialPropertyBlock();
 
         if (!m_DepthMaterial)
         {
@@ -147,6 +149,7 @@ public class MirrorReflection : MonoBehaviour
                     break;
                 }
             }
+            m_tempSharedMaterials.Clear();
             if (m_Mesh.isReadable)
             {
                 ReadMesh(index);
@@ -325,9 +328,7 @@ public class MirrorReflection : MonoBehaviour
         didRender = false;
         if (!enabled || !m_Renderer || !m_Renderer.enabled)
             return;
-        m_Renderer.GetSharedMaterials(m_tempSharedMaterials);
-        if (m_tempSharedMaterials.Count == 0)
-            return;
+
         Camera currentCam = Camera.current;
         bool isStereo = currentCam.stereoEnabled;
 
@@ -390,6 +391,10 @@ public class MirrorReflection : MonoBehaviour
             {
                 RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Mono, ref m_ReflectionTextureLeft);
             }
+            materialPropertyBlock.SetTexture(LeftEyeTextureID, m_ReflectionTextureLeft);
+            if (m_ReflectionTextureRight)
+                materialPropertyBlock.SetTexture(RightEyeTextureID, m_ReflectionTextureRight);
+            m_Renderer.SetPropertyBlock(materialPropertyBlock);
         }
         finally
         {
@@ -410,8 +415,19 @@ public class MirrorReflection : MonoBehaviour
 
     private Vector2Int UpdateRenderResolution(int width, int height)
     {
-        var max = Mathf.Clamp01(MaxTextureSizePercent);
-        return new Vector2Int((int)(width * max + 0.5f), (int)(height * max + 0.5f));
+        var max = Mathf.Clamp(MaxTextureSizePercent, 1, 100) / 100f;
+        var size = width * height;
+        var limit = resolutionLimit * resolutionLimit;
+
+        if (size > limit && resolutionLimit < 4096)
+        {
+            var _maxRes = Math.Sqrt(size / limit);
+            max *= (float)_maxRes;
+        }
+        max = Mathf.Clamp(max, 0.01f, 1f);
+        int w = (int)(width * max + 0.5f);
+        int h = (int)(height * max + 0.5f);
+        return new Vector2Int(w, h);
     }
     private static void SetupRenderTexture(ref RenderTexture rt, int width, int height, bool depth, int msaa, bool allowHDR)
     {
@@ -510,19 +526,9 @@ public class MirrorReflection : MonoBehaviour
 
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, pixelRect, validRect);
-        foreach (Material mat in m_tempSharedMaterials)
-        {
-            if (eye != Camera.MonoOrStereoscopicEye.Right)
-            {
-                if (mat.HasProperty(LeftEyeTextureID))
-                    mat.SetTexture(LeftEyeTextureID, reflectionTexture);
-            }
-            else if (mat.HasProperty(RightEyeTextureID))
-                mat.SetTexture(RightEyeTextureID, reflectionTexture);
-        }
     }
 
-    private void CopyTexture(RenderTexture reflectionTexture, Rect rect, bool validRect)
+    private void CopyTexture(RenderTexture rt, Rect rect, bool validRect)
     {
         if (validRect)
         {
@@ -532,11 +538,11 @@ public class MirrorReflection : MonoBehaviour
             int y = (int)pos.y;
             int w = (int)size.x;
             int h = (int)size.y;
-            Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, x, y, w, h, reflectionTexture, 0, 0, x, y);
+            Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, x, y, w, h, rt, 0, 0, x, y);
         }
         else
         {
-            Graphics.CopyTexture(m_ReflectionTextureMSAA, reflectionTexture);
+            Graphics.CopyTexture(m_ReflectionTextureMSAA, rt);
         }
     }
 
