@@ -54,6 +54,7 @@ public class MirrorReflection : MonoBehaviour
     private Vector3 mirrorNormal = Vector3.zero;
     private Vector3 mirrorNormalAvg = Vector3.zero;
     private Vector3x4 meshCorners;
+    private Bounds boundsLocalSpace;
     private Matrix4x4 m_LocalToWorldMatrix;
 
     private readonly List<Material> m_savedSharedMaterials = new List<Material>();   // Only relevant for the editor
@@ -219,6 +220,13 @@ public class MirrorReflection : MonoBehaviour
         var meshC2 = plane.ClosestPointOnPlane(trs.inverse.MultiplyPoint3x4(max));
         var meshC3 = plane.ClosestPointOnPlane(trs.inverse.MultiplyPoint3x4(new Vector3(max.x, min.y, min.z)));
         meshCorners = new Vector3x4 { c0 = meshC0, c1 = meshC1, c2 = meshC2, c3 = meshC3 };
+
+        boundsLocalSpace = new Bounds();
+        boundsLocalSpace.Encapsulate(meshCorners[0]);
+        boundsLocalSpace.Encapsulate(meshCorners[1]);
+        boundsLocalSpace.Encapsulate(meshCorners[2]);
+        boundsLocalSpace.Encapsulate(meshCorners[3]);
+        boundsLocalSpace.Expand(Vector3.up * 0.01f);
         hasCorners = true;
     }
 
@@ -340,6 +348,16 @@ public class MirrorReflection : MonoBehaviour
         // Force mirrors to Water layer
         if (gameObject.layer != 4)
             gameObject.layer = 4;
+
+#if UNITY_EDITOR
+        if (LeftEyeTextureID < 0 || RightEyeTextureID < 0)
+        {
+            LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
+            RightEyeTextureID = Shader.PropertyToID(RightEyeTextureName);
+        }
+        if (materialPropertyBlock == null)
+            materialPropertyBlock = new MaterialPropertyBlock();
+#endif
         actualMsaa = (int)MockMSAALevel;    //	pretend we have a config setting for this somewhere
         if (actualMsaa == 0)
         {
@@ -391,7 +409,8 @@ public class MirrorReflection : MonoBehaviour
             {
                 RenderCamera(currentCam, currentCamLtwm, mirrorPos, normal, Camera.MonoOrStereoscopicEye.Mono, ref m_ReflectionTextureLeft);
             }
-            materialPropertyBlock.SetTexture(LeftEyeTextureID, m_ReflectionTextureLeft);
+            if (m_ReflectionTextureLeft)
+                materialPropertyBlock.SetTexture(LeftEyeTextureID, m_ReflectionTextureLeft);
             if (m_ReflectionTextureRight)
                 materialPropertyBlock.SetTexture(RightEyeTextureID, m_ReflectionTextureRight);
             m_Renderer.SetPropertyBlock(materialPropertyBlock);
@@ -415,7 +434,7 @@ public class MirrorReflection : MonoBehaviour
 
     private Vector2Int UpdateRenderResolution(int width, int height)
     {
-        var max = Mathf.Clamp(MaxTextureSizePercent, 1, 100) / 100f;
+        var max = Mathf.Clamp(MaxTextureSizePercent, 1, 100);
         var size = width * height;
         var limit = resolutionLimit * resolutionLimit;
 
@@ -725,9 +744,7 @@ public class MirrorReflection : MonoBehaviour
         var texture = camera.targetTexture;
         int textureWidth = texture.width;
         var textureHeight = texture.height;
-        var corners = ToWorldCorners(ltwm);
-        var screenCorners = GetScreenCorners(camera, corners);
-        CheckCorners(screenCorners, camera, corners);
+        CheckCorners(camera, ltwm);
 
         float left = float.MaxValue;
         float right = float.MinValue;
@@ -760,6 +777,12 @@ public class MirrorReflection : MonoBehaviour
         var width = rightClamped - leftClamped;
         var height = topClamped - bottomClamped;
 
+        if (width <= 0 || height <= 0)
+        {
+            frustum = Matrix4x4.zero;
+            pixelRect = new Rect();
+            return false;
+        }
         var relevant = RectIsRelevant(left, right, top, bottom) && !(width > 0.95f && height > 0.95f);
         if (!relevant)
         {
@@ -767,12 +790,7 @@ public class MirrorReflection : MonoBehaviour
             pixelRect = new Rect(0, 0, textureWidth, textureHeight);
             return true;
         }
-        if (width == 0 || height == 0)
-        {
-            frustum = Matrix4x4.zero;
-            pixelRect = new Rect();
-            return false;
-        }
+        
 
         leftClamped = (int)((leftClamped * textureWidth) + 0.5f);
         rightClamped = (int)((rightClamped * textureWidth) + 0.5f);
@@ -815,42 +833,61 @@ public class MirrorReflection : MonoBehaviour
         frustum = Matrix4x4.Frustum(left, right, bottom, top, minZ, camera.farClipPlane);
         return true;
     }
+    private bool PlanesIntersectAtSinglePoint(Plane p0, Plane p1, Plane p2, out Vector3 intersectionPoint)
+    {
+        const float EPSILON = 1e-4f;
+
+        var det = (Vector3.Dot(Vector3.Cross(p0.normal, p1.normal), p2.normal));
+        if (Math.Abs(det) < EPSILON)
+        {
+            intersectionPoint = Vector3.zero;
+            return false;
+        }
+
+        intersectionPoint =
+            (-(p0.distance * Vector3.Cross(p1.normal, p2.normal)) -
+            (p1.distance * Vector3.Cross(p2.normal, p0.normal)) -
+            (p2.distance * Vector3.Cross(p0.normal, p1.normal))) / det;
+
+        return true;
+    }
+
     /// <summary>
     /// Check if any point has a negative depth, and generate new points from the intersection of camera frustum planes and the edges of the mirror
     /// </summary>
-    private void CheckCorners(Vector3x4 screenCorners, Camera camera, Vector3x4 corners)
+    private void CheckCorners(Camera camera, Matrix4x4 ltwm)
     {
+        var corners = ToWorldCorners(ltwm);
+        var wtlm = ltwm.inverse;
         var center = camera.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero);
+        var mirrorPlane = new Plane(corners.c0, corners.c1, corners.c2);
         GeometryUtility.CalculateFrustumPlanes(camera, planes);
-
-        for (int i = 0; i < screenCorners.Length; i++)
+        allCorners.Clear();
+        allCorners.Add(corners[0]);
+        allCorners.Add(corners[1]);
+        allCorners.Add(corners[2]);
+        allCorners.Add(corners[3]);
+        Vector3 I;
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+        for (int i = 0; i < 4; i++)
         {
-            if (screenCorners[i].z < 0f)
+            for (int j = 0; j < 4; j++)
             {
-                // the last two planes are the near and far clip plane, no need to check those.
-                for (int j = 0; j < 4; j++)
-                {
-                    if (SegmentPlane(corners[i], corners[i + 1], center, planes[j].normal, out Vector3 I))
-                    {
-                        var point = camera.WorldToViewportPoint(I);
-                        if (point.z > 0.001f)
-                        {
-                            allCorners.Add(point);
-                        }
-                    }
-                    else if (SegmentPlane(corners[i], corners[i - 1], center, planes[j].normal, out I))
-                    {
-                        var point = camera.WorldToViewportPoint(I);
-                        if (point.z > 0.001f)
-                        {
-                            allCorners.Add(point);
-                        }
-                    }
-                }
+                if (SegmentPlane(corners[i], corners[i + 1], center, planes[j].normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+                if (SegmentPlane(corners[i], corners[i - 1], center, planes[j].normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
             }
         }
+        GetScreenCorners(camera);
     }
-    /// <summary>
+    private static bool CornerWithin01(Vector3 point) => 
+        point.z >= 0f 
+        && point.x < 1.0001f && point.x > -0.0001f 
+        && point.y <= 1.0001f && point.y >= -0.0001f;
+
+      /// <summary>
     /// Find the intersection between a line segment and a plane.
     /// </summary>
     /// <param name="p0">Start point of the line segment</param>
@@ -914,15 +951,23 @@ public class MirrorReflection : MonoBehaviour
             c3 = ltwm.MultiplyPoint3x4(meshCorners.c3),
         };
     }
-    private Vector3x4 GetScreenCorners(Camera camera, Vector3x4 corners)
+    private void GetScreenCorners(Camera camera)
     {
-        var screenCorners = new Vector3x4();
-        for (int i = 0; i < corners.Length; i++)
+        Span<Vector3> validCorners = stackalloc Vector3[allCorners.Count];
+        int count = 0;
+        for (int i = 0; i < allCorners.Count; i++)
         {
-            allCorners.Add(camera.WorldToViewportPoint(corners[i]));
-            screenCorners[i] = camera.WorldToViewportPoint(corners[i]);
+            var value = camera.WorldToViewportPoint(allCorners[i]);
+            if (CornerWithin01(value))
+            {
+                validCorners[count++] = value;
+            }
         }
-        return screenCorners;
+        allCorners.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            allCorners.Add(validCorners[i]);
+        }
     }
 
     private struct Vector3x4
