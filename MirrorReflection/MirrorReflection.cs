@@ -217,7 +217,6 @@ public class MirrorReflection : MonoBehaviour
             vertices[i] = meshTrs.MultiplyPoint3x4(vertices[i]);
         }
         (min, max) = GetMinMax(vertices);
-        //min.z = max.z = min.z + max.z / 2;
 
         // the four corners of the mesh along it's plane in local space, 
         plane = new Plane(Vector3.up, Vector3.zero);
@@ -459,7 +458,7 @@ public class MirrorReflection : MonoBehaviour
 
         if (size > limit && resolutionLimit < 4096)
         {
-            var _maxRes = Math.Sqrt(size / limit);
+            var _maxRes = Math.Sqrt(limit / (float)size);
             max *= (float)_maxRes;
         }
         max = Mathf.Clamp(max, 0.01f, 1f);
