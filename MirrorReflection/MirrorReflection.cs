@@ -31,6 +31,7 @@ public class MirrorReflection : MonoBehaviour
     public bool useMask;
     public bool useMesh;
     public bool useFrustum;
+    public bool useOcclusionCulling;
     public bool didRender;
 
     private bool hasCorners;
@@ -64,6 +65,7 @@ public class MirrorReflection : MonoBehaviour
     private static bool s_InsideRendering = false;
     private static bool copySupported;
     private static Material m_DepthMaterial;
+    private static readonly Quaternion rotateCamera = Quaternion.Euler(Vector3.up * 180f);
     private static readonly Dictionary<Camera, Skybox> SkyboxDict = new Dictionary<Camera, Skybox>();
     private static readonly List<Material> m_tempSharedMaterials = new List<Material>();
     private static readonly List<Vector3> vertices = new List<Vector3>();
@@ -503,7 +505,7 @@ public class MirrorReflection : MonoBehaviour
         if (MoveMirrorCamera)
         {
             var wtinv = worldToCameraMatrix.inverse;
-            m_ReflectionCamera.transform.SetPositionAndRotation(wtinv.MultiplyPoint(Vector3.zero), wtinv.rotation);
+            m_ReflectionCamera.transform.SetPositionAndRotation(wtinv.MultiplyPoint(Vector3.zero), (wtinv * m_InversionMatrix).rotation * rotateCamera);
         }
         // Setup oblique projection matrix so that near plane is our reflection plane.
         // This way we clip everything below/above it for free.
@@ -511,7 +513,6 @@ public class MirrorReflection : MonoBehaviour
 
         var projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
         m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
-
 
         if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix, out var frustum, out Rect pixelRect))
         {
@@ -528,6 +529,7 @@ public class MirrorReflection : MonoBehaviour
         {
             m_ReflectionCamera.pixelRect = pixelRect;
             m_ReflectionCamera.projectionMatrix = frustum;
+            m_ReflectionCamera.useOcclusionCulling = useOcclusionCulling;
             willUseFrustum = true;
         }
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
@@ -737,7 +739,6 @@ public class MirrorReflection : MonoBehaviour
     private static Vector4 column2 = new Vector4(0, 0, 0, 0);
     private static Vector4 column3 = new Vector4(0, 0, 0, 1);
 
-
     public bool TryGetRectPixel(Camera camera, Matrix4x4 ltwm, out Matrix4x4 frustum, out Rect pixelRect)
     {
         allCorners.Clear();
@@ -833,24 +834,7 @@ public class MirrorReflection : MonoBehaviour
         frustum = Matrix4x4.Frustum(left, right, bottom, top, minZ, camera.farClipPlane);
         return true;
     }
-    private bool PlanesIntersectAtSinglePoint(Plane p0, Plane p1, Plane p2, out Vector3 intersectionPoint)
-    {
-        const float EPSILON = 1e-4f;
-
-        var det = (Vector3.Dot(Vector3.Cross(p0.normal, p1.normal), p2.normal));
-        if (Math.Abs(det) < EPSILON)
-        {
-            intersectionPoint = Vector3.zero;
-            return false;
-        }
-
-        intersectionPoint =
-            (-(p0.distance * Vector3.Cross(p1.normal, p2.normal)) -
-            (p1.distance * Vector3.Cross(p2.normal, p0.normal)) -
-            (p2.distance * Vector3.Cross(p0.normal, p1.normal))) / det;
-
-        return true;
-    }
+   
 
     /// <summary>
     /// Check if any point has a negative depth, and generate new points from the intersection of camera frustum planes and the edges of the mirror
@@ -858,8 +842,7 @@ public class MirrorReflection : MonoBehaviour
     private void CheckCorners(Camera camera, Matrix4x4 ltwm)
     {
         var corners = ToWorldCorners(ltwm);
-        var wtlm = ltwm.inverse;
-        var center = camera.worldToCameraMatrix.inverse.MultiplyPoint3x4(Vector3.zero);
+        var center = camera.cameraToWorldMatrix.MultiplyPoint3x4(Vector3.zero);
         var mirrorPlane = new Plane(corners.c0, corners.c1, corners.c2);
         GeometryUtility.CalculateFrustumPlanes(camera, planes);
         allCorners.Clear();
@@ -867,6 +850,12 @@ public class MirrorReflection : MonoBehaviour
         allCorners.Add(corners[1]);
         allCorners.Add(corners[2]);
         allCorners.Add(corners[3]);
+
+        CalculateAdditionalPoints(ltwm, corners, center, mirrorPlane, camera);
+    }
+    private void CalculateAdditionalPoints(Matrix4x4 ltwm, Vector3x4 corners, Vector3 center, Plane mirrorPlane, Camera camera)
+    {
+        var wtlm = ltwm.inverse;
         Vector3 I;
         if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
         if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
@@ -887,7 +876,7 @@ public class MirrorReflection : MonoBehaviour
         && point.x < 1.0001f && point.x > -0.0001f 
         && point.y <= 1.0001f && point.y >= -0.0001f;
 
-      /// <summary>
+    /// <summary>
     /// Find the intersection between a line segment and a plane.
     /// </summary>
     /// <param name="p0">Start point of the line segment</param>
@@ -930,6 +919,26 @@ public class MirrorReflection : MonoBehaviour
         I = p0 + sI * u;                        // compute segment intersect point
         return true;
     }
+    // https://gist.github.com/StagPoint/2eaa878f151555f9f96ae7190f80352e
+    private static bool PlanesIntersectAtSinglePoint(in Plane p0, in Plane p1, in Plane p2, out Vector3 intersectionPoint)
+    {
+        const float EPSILON = 1e-4f;
+
+        var det = (Vector3.Dot(Vector3.Cross(p0.normal, p1.normal), p2.normal));
+        if (Math.Abs(det) < EPSILON)
+        {
+            intersectionPoint = Vector3.zero;
+            return false;
+        }
+
+        intersectionPoint =
+            (-(p0.distance * Vector3.Cross(p1.normal, p2.normal)) -
+            (p1.distance * Vector3.Cross(p2.normal, p0.normal)) -
+            (p2.distance * Vector3.Cross(p0.normal, p1.normal))) / det;
+
+        return true;
+    }
+
     /// <summary>
     /// Check if at least one dimension is between 0 and 1
     /// </summary>
