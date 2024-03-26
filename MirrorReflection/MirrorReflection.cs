@@ -56,8 +56,8 @@ public class MirrorReflection : MonoBehaviour
     private MaterialPropertyBlock materialPropertyBlock;
     private Renderer m_Renderer;
     private Mesh m_Mesh;
-    private Vector3 mirrorNormal = Vector3.zero;
-    private Vector3 mirrorNormalAvg = Vector3.zero;
+    private Vector3 mirrorNormal = Vector3.up;
+    private Vector3 mirrorNormalAvg = Vector3.up;
     private Vector3x4 meshCorners;
     private Bounds boundsLocalSpace;
     private Matrix4x4 m_LocalToWorldMatrix;
@@ -158,16 +158,21 @@ public class MirrorReflection : MonoBehaviour
                 }
             }
             m_tempSharedMaterials.Clear();
-            if (m_Mesh.isReadable)
+            var mesh = m_Mesh;
+            try
             {
-                ReadMesh(index);
+                if (!mesh.isReadable)
+                {
+                    mesh = ReadItAnyway(mesh);
+                }
+                ReadMesh(mesh, index);
+                FindMeshCorners();
             }
-            else
+            catch (Exception) { }
+            if (!mesh.isReadable)
             {
-                mirrorNormal = mirrorNormalAvg = -transform.forward;
+                mirrorNormal = mirrorNormalAvg = Vector3.up;
             }
-            FindMeshCorners();
-
         }
 
 
@@ -193,6 +198,19 @@ public class MirrorReflection : MonoBehaviour
         {
             m_MaterialsInstanced = m_Renderer.materials;
         }
+    }
+    private Mesh ReadItAnyway(Mesh mesh) 
+    {
+        GameObject go = new GameObject();
+        var smr = go.AddComponent<SkinnedMeshRenderer>();
+        smr.sharedMesh = mesh;
+        smr.bones = new Transform[] { go.transform };
+        mesh.bindposes = new Matrix4x4[] { Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one) };
+        Mesh meshCopy = new Mesh();
+        smr.BakeMesh(meshCopy);
+        meshCopy.RecalculateBounds();
+        GameObject.DestroyImmediate(go);
+        return meshCopy;
     }
     private void FindMeshCorners()
     {
@@ -235,25 +253,25 @@ public class MirrorReflection : MonoBehaviour
         hasCorners = true;
     }
 
-    private void ReadMesh(int index)
+    private void ReadMesh(Mesh mesh, int index)
     {
         Vector3 allNormals = Vector3.zero;
-        if (m_Mesh.subMeshCount > 1 && index >= 0 && index < m_Mesh.subMeshCount)
+        if (mesh.subMeshCount > 1 && index >= 0 && index < mesh.subMeshCount)
         {
             ints.Clear();
-            var subMesh = m_Mesh.GetSubMesh(index);
-            m_Mesh.GetIndices(indicies, index);
+            var subMesh = mesh.GetSubMesh(index);
+            mesh.GetIndices(indicies, index);
             for (int i = subMesh.indexStart; i < subMesh.indexCount; i++)
             {
                 ints.Add(indicies[i]);
             }
-            m_Mesh.GetVertices(vertices);
+            mesh.GetVertices(vertices);
             foreach (var item in ints)
             {
                 mirrorVertices.Add(vertices[item]);
             }
             vertices.Clear();
-            m_Mesh.GetNormals(vertices);
+            mesh.GetNormals(vertices);
             mirrorNormal = vertices[0];
             foreach (var item in ints)
             {
@@ -264,8 +282,8 @@ public class MirrorReflection : MonoBehaviour
         }
         else
         {
-            m_Mesh.GetVertices(mirrorVertices);
-            m_Mesh.GetNormals(vertices);
+            mesh.GetVertices(mirrorVertices);
+            mesh.GetNormals(vertices);
             foreach (var item in vertices)
             {
                 allNormals += item;
