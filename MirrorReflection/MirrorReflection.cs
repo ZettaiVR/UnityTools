@@ -58,6 +58,7 @@ public class MirrorReflection : MonoBehaviour
     private Mesh m_Mesh;
     private Vector3 mirrorNormal = Vector3.up;
     private Vector3 mirrorNormalAvg = Vector3.up;
+    private Vector3 mirrorPlaneOffset = Vector3.zero;
     private Vector3x4 meshCorners;
     private Bounds boundsLocalSpace;
     private Matrix4x4 m_LocalToWorldMatrix;
@@ -118,22 +119,15 @@ public class MirrorReflection : MonoBehaviour
             CreateMirrorMaskMaterial();
         }
 
-        m_Renderer = GetComponent<Renderer>();
+        m_Renderer = GetComponent<MeshRenderer>();
         if (!m_Renderer)
         {
             enabled = false;
             return;
         }
-        else
+        if (m_Renderer.TryGetComponent<MeshFilter>(out var filter))
         {
-            if (m_Renderer is SkinnedMeshRenderer smr)
-            {
-                m_Mesh = smr.sharedMesh; // don't
-            }
-            else if (m_Renderer.TryGetComponent<MeshFilter>(out var filter))
-            {
-                m_Mesh = filter.sharedMesh;
-            }
+            m_Mesh = filter.sharedMesh;
         }
         if (LeftEyeTextureID < 0 || RightEyeTextureID < 0)
         {
@@ -205,7 +199,6 @@ public class MirrorReflection : MonoBehaviour
         var smr = go.AddComponent<SkinnedMeshRenderer>();
         smr.sharedMesh = mesh;
         smr.bones = new Transform[] { go.transform };
-        mesh.bindposes = new Matrix4x4[] { Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one) };
         Mesh meshCopy = new Mesh();
         smr.BakeMesh(meshCopy);
         meshCopy.RecalculateBounds();
@@ -214,43 +207,47 @@ public class MirrorReflection : MonoBehaviour
     }
     private void FindMeshCorners()
     {
-        (var min, var max) = GetMinMax(mirrorVertices);
-        mirrorVertices.Clear();
-        var plane = new Plane(mirrorNormalAvg, Vector3.zero);
+        (var min, var max, var mid) = GetMinMax(mirrorVertices);
+        
+        var plane = new Plane(mirrorNormalAvg, mid);
         var rot = Quaternion.FromToRotation(mirrorNormalAvg, Vector3.up);
         meshTrs = Matrix4x4.TRS(Vector3.zero, rot, Vector3.one);
+        mirrorPlaneOffset = mid;
 
-        vertices.Add(plane.ClosestPointOnPlane(new Vector3(min.x, min.y, min.z)));
+        vertices.Add(plane.ClosestPointOnPlane(min));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(min.x, min.y, max.z)));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(min.x, max.y, min.z)));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(min.x, max.y, max.z)));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(max.x, min.y, min.z)));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(max.x, min.y, max.z)));
         vertices.Add(plane.ClosestPointOnPlane(new Vector3(max.x, max.y, min.z)));
-        vertices.Add(plane.ClosestPointOnPlane(new Vector3(max.x, max.y, max.z)));
+        vertices.Add(plane.ClosestPointOnPlane(max));
 
         for (int i = 0; i < vertices.Count; i++)
         {
             // make them face forward on the Z axis
             vertices[i] = meshTrs.MultiplyPoint3x4(vertices[i]);
         }
-        (min, max) = GetMinMax(vertices);
+        (min, max, _) = GetMinMax(vertices);
 
         // the four corners of the mesh along it's plane in local space, 
-        plane = new Plane(Vector3.up, Vector3.zero);
+        plane = new Plane(Vector3.up, meshTrs.MultiplyPoint3x4(mirrorPlaneOffset));
         var meshC0 = plane.ClosestPointOnPlane(min);
         var meshC1 = plane.ClosestPointOnPlane(new Vector3(min.x, min.y, max.z));
         var meshC2 = plane.ClosestPointOnPlane(max);
         var meshC3 = plane.ClosestPointOnPlane(new Vector3(max.x, min.y, min.z));
         meshCorners = new Vector3x4 { c0 = meshC0, c1 = meshC1, c2 = meshC2, c3 = meshC3 };
 
-        boundsLocalSpace = new Bounds();
+        boundsLocalSpace = new Bounds(meshCorners[0], Vector3.zero);
         boundsLocalSpace.Encapsulate(meshCorners[0]);
         boundsLocalSpace.Encapsulate(meshCorners[1]);
         boundsLocalSpace.Encapsulate(meshCorners[2]);
         boundsLocalSpace.Encapsulate(meshCorners[3]);
-        boundsLocalSpace.Expand(Vector3.one * 0.001f);
+        var size = boundsLocalSpace.size;
+        size.y = size.x;
+        boundsLocalSpace.Expand(Vector3.one * (0.001f / size.magnitude));
         hasCorners = true;
+        mirrorVertices.Clear();
     }
 
     private void ReadMesh(Mesh mesh, int index)
@@ -259,9 +256,8 @@ public class MirrorReflection : MonoBehaviour
         if (mesh.subMeshCount > 1 && index >= 0 && index < mesh.subMeshCount)
         {
             ints.Clear();
-            var subMesh = mesh.GetSubMesh(index);
             mesh.GetIndices(indicies, index);
-            for (int i = subMesh.indexStart; i < subMesh.indexCount; i++)
+            for (int i = 0; i < indicies.Count; i++)
             {
                 ints.Add(indicies[i]);
             }
@@ -272,7 +268,8 @@ public class MirrorReflection : MonoBehaviour
             }
             vertices.Clear();
             mesh.GetNormals(vertices);
-            mirrorNormal = vertices[0];
+            if (vertices.Count > 0)
+                mirrorNormal = vertices[0];
             foreach (var item in ints)
             {
                 allNormals += vertices[item];
@@ -289,7 +286,8 @@ public class MirrorReflection : MonoBehaviour
                 allNormals += item;
             }
             // Get the mirror mesh normal from the first vertex
-            mirrorNormal = vertices[0];
+            if (vertices.Count > 0)
+                mirrorNormal = vertices[0];
             vertices.Clear();
         }
 
@@ -301,14 +299,16 @@ public class MirrorReflection : MonoBehaviour
         }
     }
 
-    private (Vector3 min, Vector3 max) GetMinMax(List<Vector3> list)
+    private (Vector3 min, Vector3 max, Vector3 mid) GetMinMax(List<Vector3> list)
     {
         int count = list.Count;
         Vector3 min = Vector3.one * float.PositiveInfinity;
         Vector3 max = Vector3.one * float.NegativeInfinity;
+        Vector3 mid = Vector3.zero;
         for (int i = 0; i < count; i++)
         {
             var v = list[i];
+            mid += v;
             if (v.x < min.x) min.x = v.x;
             if (v.y < min.y) min.y = v.y;
             if (v.z < min.z) min.z = v.z;
@@ -316,7 +316,7 @@ public class MirrorReflection : MonoBehaviour
             if (v.y > max.y) max.y = v.y;
             if (v.z > max.z) max.z = v.z;
         }
-        return (min, max);
+        return (min, max, mid / count);
     }
 
     private void CreateMirrorMaskMaterial()
@@ -328,16 +328,18 @@ public class MirrorReflection : MonoBehaviour
         }
     }
 
-    private void CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name)
+    private bool CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name)
     {
         if (_commandBuffer == null)
         {
             _commandBuffer = new CommandBuffer { name = name };
+            return true;
         }
         else
         {
             _commandBuffer.Clear();
         }
+        return false;
     }
 
     private void OnDestroy()
@@ -398,7 +400,7 @@ public class MirrorReflection : MonoBehaviour
         int oldPixelLightCount = QualitySettings.pixelLightCount;
 
         m_LocalToWorldMatrix = transform.localToWorldMatrix;
-        Vector3 mirrorPos = m_LocalToWorldMatrix.GetColumn(3);  // transform.position
+        Vector3 mirrorPos = m_LocalToWorldMatrix.MultiplyPoint3x4(mirrorPlaneOffset);  // transform.position
         Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
 
         if (m_DisablePixelLights)
@@ -470,7 +472,7 @@ public class MirrorReflection : MonoBehaviour
 
     private Vector2Int UpdateRenderResolution(int width, int height)
     {
-        var max = Mathf.Clamp(MaxTextureSizePercent, 1, 100);
+        var max = Mathf.Clamp(MaxTextureSizePercent, 0.01f, 1f);
         var size = width * height;
         var limit = resolutionLimit * resolutionLimit;
 
@@ -568,11 +570,11 @@ public class MirrorReflection : MonoBehaviour
 
         var projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
         m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
-
-        if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix * meshTrs, out var frustum, out Rect pixelRect))
+        if (!TryGetRectPixel(m_ReflectionCamera, m_Renderer.localToWorldMatrix * meshTrs.inverse, out var frustum, out Rect pixelRect))
         {
             return;
         }
+
         bool willUseFrustum = false;
         bool validRect = false;
 
@@ -648,8 +650,8 @@ public class MirrorReflection : MonoBehaviour
 
     private void CreateCommandBuffers(Rect pixelRectFull, Rect pixelRectLimited)
     {
-        CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0");
-        CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1");
+        var zeroCreated = CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0");
+        var oneCreate = CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1");
         CreateCommandBuffer(ref commandBufferDrawMesh, "Occlusion buffer - DrawMesh");
         CreateCommandBuffer(ref commandBufferSetRectFull, "Occlusion buffer - SetRect full");
         CreateCommandBuffer(ref commandBufferSetRectLimited, "Occlusion buffer - SetRect limited");
@@ -660,8 +662,10 @@ public class MirrorReflection : MonoBehaviour
         if (!m_DepthMaterial)
             return;
 
-        commandBufferClearRenderTargetToZero.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 0);
-        commandBufferClearRenderTargetToOne.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 1);
+        if (zeroCreated)
+            commandBufferClearRenderTargetToZero.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 0);
+        if (oneCreate)
+            commandBufferClearRenderTargetToOne.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 1);
 
 
         if (m_Mesh)
@@ -901,35 +905,56 @@ public class MirrorReflection : MonoBehaviour
     /// </summary>
     private void CheckCorners(Camera camera, Matrix4x4 ltwm)
     {
-        var corners = ToWorldCorners(ltwm);
+        allCorners.Clear();
+        var corners = meshCorners.MultiplyPoint3x4(ltwm);
         var center = camera.cameraToWorldMatrix.MultiplyPoint3x4(Vector3.zero);
         var mirrorPlane = new Plane(corners.c0, corners.c1, corners.c2);
         GeometryUtility.CalculateFrustumPlanes(camera, planes);
-        allCorners.Clear();
-        allCorners.Add(corners[0]);
-        allCorners.Add(corners[1]);
-        allCorners.Add(corners[2]);
-        allCorners.Add(corners[3]);
-
+        int index = 0;
+        Span<Vector3> span = stackalloc Vector3[4];
+        span[index++] = corners[0];
+        span[index++] = corners[1];
+        span[index++] = corners[2];
+        span[index++] = corners[3];
+        GetScreenCorners(camera, span, index);
+        if (allCorners.Count == 4)
+            return;
         CalculateAdditionalPoints(ltwm, corners, center, mirrorPlane, camera);
     }
     private void CalculateAdditionalPoints(Matrix4x4 ltwm, Vector3x4 corners, Vector3 center, Plane mirrorPlane, Camera camera)
     {
+        Span<Vector3> span = stackalloc Vector3[20];
+        int index = 0;
         var wtlm = ltwm.inverse;
         Vector3 I;
-        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
-        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
-        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
-        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[0], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[2], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
+        if (PlanesIntersectAtSinglePoint(mirrorPlane, planes[1], planes[3], out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
         for (int i = 0; i < 4; i++)
         {
+            var corner = corners[i];
+            var nextCorner = corners[i + 1];
+            var prevCorner = corners[i - 1];
             for (int j = 0; j < 4; j++)
             {
-                if (SegmentPlane(corners[i], corners[i + 1], center, planes[j].normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
-                if (SegmentPlane(corners[i], corners[i - 1], center, planes[j].normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) allCorners.Add(I);
+                var normal = planes[j].normal;
+                if (SegmentPlane(corner, nextCorner, center, normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
+                if (SegmentPlane(corner, prevCorner, center, normal, out I) && boundsLocalSpace.Contains(wtlm.MultiplyPoint3x4(I))) span[index++] = I;
             }
         }
-        GetScreenCorners(camera);
+        GetScreenCorners(camera, span, index);
+    }
+    private void GetScreenCorners(Camera camera, Span<Vector3> span, int index)
+    {
+        for (int i = 0; i < index; i++)
+        {
+            var value = camera.WorldToViewportPoint(span[i]);
+            if (CornerWithin01(value))
+            {
+                allCorners.Add(value);
+            }
+        }
     }
     private static bool CornerWithin01(Vector3 point) => 
         point.z >= 0f 
@@ -948,8 +973,6 @@ public class MirrorReflection : MonoBehaviour
     /// https://gamedev.stackexchange.com/questions/178477/whats-wrong-with-my-line-segment-plane-intersection-code
     private static bool SegmentPlane(Vector3 p0, Vector3 p1, Vector3 planeCenter, Vector3 planeNormal, out Vector3 I)
     {
-        I = Vector3.zero;
-
         Vector3 u = p1 - p0;
         Vector3 w = p0 - planeCenter;
 
@@ -966,6 +989,7 @@ public class MirrorReflection : MonoBehaviour
             }
             else
             {
+                I = Vector3.zero;
                 return false;                   // no intersection
             }
         }
@@ -974,8 +998,10 @@ public class MirrorReflection : MonoBehaviour
         // compute intersect param
         float sI = N / D;
         if (sI < 0 || sI > 1)
+        {
+            I = Vector3.zero;
             return false;                       // no intersection
-
+        }
         I = p0 + sI * u;                        // compute segment intersect point
         return true;
     }
@@ -984,7 +1010,11 @@ public class MirrorReflection : MonoBehaviour
     {
         const float EPSILON = 1e-4f;
 
-        var det = (Vector3.Dot(Vector3.Cross(p0.normal, p1.normal), p2.normal));
+        var p0normal = p0.normal;
+        var p1normal = p1.normal;
+        var p2normal = p2.normal;
+
+        var det = (Vector3.Dot(Vector3.Cross(p0normal, p1normal), p2normal));
         if (Math.Abs(det) < EPSILON)
         {
             intersectionPoint = Vector3.zero;
@@ -992,9 +1022,9 @@ public class MirrorReflection : MonoBehaviour
         }
 
         intersectionPoint =
-            (-(p0.distance * Vector3.Cross(p1.normal, p2.normal)) -
-            (p1.distance * Vector3.Cross(p2.normal, p0.normal)) -
-            (p2.distance * Vector3.Cross(p0.normal, p1.normal))) / det;
+            (-(p0.distance * Vector3.Cross(p1normal, p2normal)) -
+            (p1.distance * Vector3.Cross(p2normal, p0normal)) -
+            (p2.distance * Vector3.Cross(p0normal, p1normal))) / det;
 
         return true;
     }
@@ -1010,34 +1040,7 @@ public class MirrorReflection : MonoBehaviour
                (bottom > 0 && bottom < 1);
     }
 
-    private Vector3x4 ToWorldCorners(Matrix4x4 ltwm)
-    {
-        return new Vector3x4
-        {
-            c0 = ltwm.MultiplyPoint3x4(meshCorners.c0),
-            c1 = ltwm.MultiplyPoint3x4(meshCorners.c1),
-            c2 = ltwm.MultiplyPoint3x4(meshCorners.c2),
-            c3 = ltwm.MultiplyPoint3x4(meshCorners.c3),
-        };
-    }
-    private void GetScreenCorners(Camera camera)
-    {
-        Span<Vector3> validCorners = stackalloc Vector3[allCorners.Count];
-        int count = 0;
-        for (int i = 0; i < allCorners.Count; i++)
-        {
-            var value = camera.WorldToViewportPoint(allCorners[i]);
-            if (CornerWithin01(value))
-            {
-                validCorners[count++] = value;
-            }
-        }
-        allCorners.Clear();
-        for (int i = 0; i < count; i++)
-        {
-            allCorners.Add(validCorners[i]);
-        }
-    }
+
 
     private struct Vector3x4
     {
@@ -1074,5 +1077,6 @@ public class MirrorReflection : MonoBehaviour
                 }
             }
         }
+        public Vector3x4 MultiplyPoint3x4(Matrix4x4 ltwm) => new Vector3x4 { c0 = ltwm.MultiplyPoint3x4(c0), c1 = ltwm.MultiplyPoint3x4(c1), c2 = ltwm.MultiplyPoint3x4(c2), c3 = ltwm.MultiplyPoint3x4(c3) };
     }
 }
