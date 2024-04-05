@@ -76,6 +76,7 @@ public class MirrorReflection : MonoBehaviour
     private static bool copySupported;
     private static Material m_DepthMaterial;
     private static RenderTexture cullingTex;
+    private static Texture2D clearPixel;
     private static readonly Dictionary<Camera, Skybox> SkyboxDict = new Dictionary<Camera, Skybox>();
     private static readonly List<Material> m_tempSharedMaterials = new List<Material>();
     private static readonly List<Vector3> vertices = new List<Vector3>();
@@ -131,10 +132,8 @@ public class MirrorReflection : MonoBehaviour
         {
             CreateMirrorMaskMaterial();
         }
-        if (!cullingTex)
-        {
-            cullingTex = RenderTexture.GetTemporary(1, 1, 0);
-        }
+
+        CreateCullingTextures();
 
         m_Renderer = GetComponent<MeshRenderer>();
         if (!m_Renderer)
@@ -158,7 +157,6 @@ public class MirrorReflection : MonoBehaviour
             m_Renderer.GetSharedMaterials(m_savedSharedMaterials);
             m_tempSharedMaterials.Clear();
             m_tempSharedMaterials.AddRange(m_savedSharedMaterials);
-            bool isEditor = Application.isEditor;
             int index = -1;
             for (int i = 0; i < m_tempSharedMaterials.Count; i++)
             {
@@ -211,6 +209,22 @@ public class MirrorReflection : MonoBehaviour
             m_MaterialsInstanced = m_Renderer.materials;
         }
     }
+
+    private static void CreateCullingTextures()
+    {
+        if (!cullingTex)
+        {
+            cullingTex = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGB32);
+            cullingTex.Create();
+        }
+        if (!clearPixel)
+        {
+            clearPixel = new Texture2D(1, 1, TextureFormat.ARGB32, 0, true);
+            clearPixel.SetPixel(0, 0, Color.clear);
+            Graphics.CopyTexture(clearPixel, cullingTex);
+        }
+    }
+
     private Mesh ReadItAnyway(Mesh mesh) 
     {
         GameObject go = new GameObject();
@@ -224,8 +238,9 @@ public class MirrorReflection : MonoBehaviour
     }
     private void FindMeshCorners()
     {
-        (var min, var max, var mirrorPlaneOffset) = GetMinMax(mirrorVertices);
-        
+        (var min, var max, var mid) = GetMinMax(mirrorVertices);
+        mirrorPlaneOffset = mid;
+
         var plane = new Plane(mirrorNormalAvg, mirrorPlaneOffset);
         var rot = Quaternion.FromToRotation(mirrorNormalAvg, Vector3.up);
         meshTrs = Matrix4x4.TRS(Vector3.zero, rot, Vector3.one);
@@ -393,8 +408,8 @@ public class MirrorReflection : MonoBehaviour
         }
         if (materialPropertyBlock == null)
             materialPropertyBlock = new MaterialPropertyBlock();
-        if (!cullingTex)
-            cullingTex = RenderTexture.GetTemporary(1, 1, 0);
+        CreateCullingTextures();
+
 #endif
 
         if (currentCam.orthographic) 
@@ -404,8 +419,6 @@ public class MirrorReflection : MonoBehaviour
             m_Renderer.SetPropertyBlock(materialPropertyBlock);
             return;
         }
-
-
         // Rendering will happen.
 
         // Force mirrors to Water layer
@@ -625,7 +638,7 @@ public class MirrorReflection : MonoBehaviour
         {
             m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
             m_CullingCamera.farClipPlane = currentCam.farClipPlane;
-            var validCulling = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, mirrorPlane, ltwm.MultiplyPoint3x4(meshMid), currentCam.farClipPlane);
+            var validCulling = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, worldCorners, mirrorPlane, ltwm.MultiplyPoint3x4(meshMid), currentCam.farClipPlane);
             if (validCulling)
             {
                 m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
@@ -798,9 +811,11 @@ public class MirrorReflection : MonoBehaviour
             _culling.transform.localPosition = -mirrorNormalAvg;
             _culling.transform.LookAt(transform);
             m_CullingCamera = _culling.AddComponent<Camera>();
-            m_CullingCamera.targetTexture = cullingTex;
             _culling.hideFlags = HideFlags.DontSave;
         }
+        m_CullingCamera.Reset();
+        m_CullingCamera.fieldOfView = 179f;
+        m_CullingCamera.targetTexture = cullingTex;
         m_CullingCamera.enabled = false;
         if (m_ReflectionCamera)
         {
@@ -910,7 +925,7 @@ public class MirrorReflection : MonoBehaviour
         width = right - left;
         height = top - bottom;
 
-        pixelRect = new Rect(left, bottom, width, height);
+        pixelRect = new Rect(left + 0.0001f, bottom + 0.0001f, width - 0.0002f, height - 0.0002f);
 
         left /= textureWidth;
         right /= textureWidth;
@@ -926,41 +941,42 @@ public class MirrorReflection : MonoBehaviour
         return true;
     }
 
-    private bool SetCullingCameraProjectionMatrix(Camera cullingCamera, Camera m_ReflectionCamera, Plane mirrorPlane, Vector3 midPoint, float farClipPlane)
+    private static bool SetCullingCameraProjectionMatrix(Camera cullingCamera, Camera m_ReflectionCamera, Vector3x4 worldCorners, Plane mirrorPlane, Vector3 midPoint, float farClipPlane)
     {
-        cullingCamera.fieldOfView = 179f;
-        cullingCamera.ResetProjectionMatrix();
         Span<Vector3> span = stackalloc Vector3[4];
         var far = m_ReflectionCamera.farClipPlane;
         var mirrorPos = m_ReflectionCamera.cameraToWorldMatrix.MultiplyPoint3x4(Vector3.zero);
         var mirrorNormal = mirrorPlane.normal;
-        cullingCamera.rect = new Rect(0, 0, 1, 1);
 
-        // get the 4 corners of the viewport in world space at the far clip distance
+        // get the 4 corners of the viewport in world space at the far clip distance. the order is important.
 
-        span[0] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(0, 0, far));
-        span[1] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(0, 1, far));
+        span[0] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(0, 1, far));
+        span[1] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(0, 0, far));
         span[2] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(1, 0, far));
         span[3] = m_ReflectionCamera.ViewportToWorldPoint(new Vector3(1, 1, far));
 
         // 4 lines (far points to mirror camera) intersecting the mirror plane
 
-        bool c0 = SegmentPlane(mirrorPos, span[0], midPoint, mirrorNormal, out var leftBottomPoint);
-        bool c1 = SegmentPlane(mirrorPos, span[1], midPoint, mirrorNormal, out var leftTopPoint);
-        bool c2 = SegmentPlane(mirrorPos, span[2], midPoint, mirrorNormal, out var rightBottomPoint);
-        bool c3 = SegmentPlane(mirrorPos, span[3], midPoint, mirrorNormal, out var rightTopPoint);
+        for (int i = 0; i < 4; i++)
+        {
+            if (mirrorPlane.GetSide(span[i]))
+            {
+                // line segment (far point to mirror camera) intersecting the mirror plane
+                bool c = SegmentPlane(mirrorPos, span[i], midPoint, mirrorNormal, out var point);
+                // translate these points from world space to viewport points on the culling camera
+                span[i] = cullingCamera.WorldToViewportPoint(point);
+            }
+            else
+            {
+                // if the point is behind the mirror, use the corresponding worldspace corner. 
+                span[i] = cullingCamera.WorldToViewportPoint(worldCorners[i]);
+            }
+        }
 
-        // translate these points from world space to viewport points on the culling camera
-
-        span[0] = cullingCamera.WorldToViewportPoint(leftBottomPoint); 
-        span[1] = cullingCamera.WorldToViewportPoint(leftTopPoint);
-        span[2] = cullingCamera.WorldToViewportPoint(rightBottomPoint);
-        span[3] = cullingCamera.WorldToViewportPoint(rightTopPoint);
-
-        var left    = c0 && c1 ? Min4(span[0].x, span[1].x, span[2].x, span[3].x) : 0f;
-        var right   = c2 && c3 ? Max4(span[0].x, span[1].x, span[2].x, span[3].x) : 1f;
-        var bottom  = c0 && c2 ? Min4(span[0].y, span[1].y, span[2].y, span[3].y) : 0f;
-        var top     = c1 && c3 ? Max4(span[0].y, span[1].y, span[2].y, span[3].y) : 1f;
+        var left    = Min4(span[0].x, span[1].x, span[2].x, span[3].x);
+        var right   = Max4(span[0].x, span[1].x, span[2].x, span[3].x);
+        var bottom  = Min4(span[0].y, span[1].y, span[2].y, span[3].y);
+        var top     = Max4(span[0].y, span[1].y, span[2].y, span[3].y);
         var width = right - left;
         var height = top - bottom;
         var viewport = new Rect(left, bottom, width, height);
@@ -972,17 +988,12 @@ public class MirrorReflection : MonoBehaviour
     }
     private static float Min4(float a, float b, float c, float d) => Mathf.Min(Mathf.Min(Mathf.Min(a, b), c), d);
     private static float Max4(float a, float b, float c, float d) => Mathf.Max(Mathf.Max(Mathf.Max(a, b), c), d);
-    private static void FindExtremes(Span<Vector3> outCorners, out Vector4 result)
+    private static void FindExtremes(Span<Vector3> span, out Vector4 result)
     {
-        result = MinMaxVector4;
-        for (int i = 0; i < outCorners.Length; i++)
-        {
-            var current = outCorners[i];
-            if (result.x  > current.x) { result.x = current.x; }
-            if (result.y  < current.x) { result.y = current.x; }
-            if (result.z  > current.y) { result.z = current.y; }
-            if (result.w  < current.y) { result.w = current.y; }
-        }
+        result.x = Min4(span[0].x, span[1].x, span[2].x, span[3].x);
+        result.y = Max4(span[0].x, span[1].x, span[2].x, span[3].x);
+        result.z = Min4(span[0].y, span[1].y, span[2].y, span[3].y);
+        result.w = Max4(span[0].y, span[1].y, span[2].y, span[3].y);
     }
     /// <param name="result">left, right, bottom, top</param>
     private static bool FindExtremesZ(Span<Vector3> allCorners, out Vector4 result, out float minZ)
