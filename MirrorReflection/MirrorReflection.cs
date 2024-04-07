@@ -21,19 +21,21 @@ public class MirrorReflection : MonoBehaviour
     private const string CullingCameraName = "Mirror culling camera";
 
     public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x4;
-    public int resolutionLimit = 4096;
-    public bool useVRAMOptimization = true;
-    public bool m_DisablePixelLights = true;
+    public int resolutionLimit = 4096; 
     [Range(0.01f, 1f)]
     public float MaxTextureSizePercent = 1.0f;  // this should be a setting in config
     public LayerMask m_ReflectLayers = -1;
-    public bool useMask;
-    public bool useMesh;
+    public bool useVRAMOptimization = true;
+    public bool m_DisablePixelLights = true;
+    public bool useMasking = false;
+    public bool useMirrorMeshForMasking = false;
     public bool useFrustum = true;
-    public bool useOcclusionCulling;
-
+    public bool useOcclusionCulling = true;
+    public bool disableOcclusionWhenTransparent = false;
     public ClearFlags clearFlags = ClearFlags.Default;
     public Color backgroundColor = Color.clear;
+
+
 #if UNITY_EDITOR
     public bool didRender;
 #else
@@ -359,14 +361,14 @@ public class MirrorReflection : MonoBehaviour
         }
     }
 
-    private bool CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name)
+    private bool CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name, bool clear)
     {
         if (_commandBuffer == null)
         {
             _commandBuffer = new CommandBuffer { name = name };
             return true;
         }
-        else
+        else if (clear)
         {
             _commandBuffer.Clear();
         }
@@ -523,7 +525,7 @@ public class MirrorReflection : MonoBehaviour
             var _maxRes = Math.Sqrt(limit / (float)size);
             max *= (float)_maxRes;
         }
-        max = Mathf.Clamp(max, 0.01f, 1f);
+        max = Mathf.Clamp(max, 0.001f, 1f);
         int w = (int)(width * max + 0.5f);
         int h = (int)(height * max + 0.5f);
         return new Vector2Int(w, h);
@@ -586,7 +588,10 @@ public class MirrorReflection : MonoBehaviour
 
         var targetTexture = useMsaaTexture ? m_ReflectionTextureMSAA : reflectionTexture;
 
-        m_ReflectionCamera.useOcclusionCulling = useOcclusionCulling;
+        bool isTransparent = clearFlags == ClearFlags.Color && backgroundColor.a < 1f;
+        bool useOcclusion = useOcclusionCulling && !(disableOcclusionWhenTransparent && isTransparent);
+
+        m_ReflectionCamera.useOcclusionCulling = useOcclusion;
         m_ReflectionCamera.depthTextureMode = currentCam.depthTextureMode | DepthTextureMode.Depth;
         m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
@@ -634,7 +639,7 @@ public class MirrorReflection : MonoBehaviour
             willUseFrustum = true;
         }
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
-        if (useOcclusionCulling)
+        if (useOcclusion)
         {
             m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
             m_CullingCamera.farClipPlane = currentCam.farClipPlane;
@@ -649,7 +654,7 @@ public class MirrorReflection : MonoBehaviour
             }
         }
 
-        if (useMask)
+        if (useMasking)
         {
             var pixelWidth = targetTexture.width;
             var pixelHeight = targetTexture.height;
@@ -671,10 +676,12 @@ public class MirrorReflection : MonoBehaviour
         {
             var pos = rect.position;
             var size = rect.size;
-            int x = (int)pos.x;
-            int y = (int)pos.y;
-            int w = (int)size.x;
-            int h = (int)size.y;
+            int x = (int)(uint)(pos.x - 0.01f);
+            int y = (int)(uint)(pos.y - 0.01f);
+            int w = (int)(size.x + 0.01f) + 1;
+            int h = (int)(size.y + 0.01f) + 1;
+            w = Mathf.Min(x + w, m_ReflectionTextureMSAA.width) - x;
+            h = Mathf.Min(y + h, m_ReflectionTextureMSAA.height) - y;
             Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, x, y, w, h, rt, 0, 0, x, y);
         }
         else
@@ -686,34 +693,42 @@ public class MirrorReflection : MonoBehaviour
     private void RenderWithCommanBuffers(Rect fullRect, Rect pixelRect, bool willUseFrustum, bool validRect)
     {
         CreateCommandBuffers(fullRect, pixelRect);
-        m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectFull);
-        m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferClearRenderTargetToZero);
-        if (validRect)
-        {
-            m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectLimited);
-            m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferClearRenderTargetToOne);
-        }
-        if (!willUseFrustum || useMesh)
-            m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectFull);
-        if (useMesh)
-            m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferDrawMesh);
-        if (willUseFrustum)
-            m_ReflectionCamera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectLimited);
+        AddBuffers(CameraEvent.BeforeForwardOpaque, willUseFrustum, validRect);
         m_ReflectionCamera.Render();
-        m_ReflectionCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferClearRenderTargetToZero);
-        m_ReflectionCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferDrawMesh);
-        m_ReflectionCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectFull);
-        m_ReflectionCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferSetRectLimited);
-        m_ReflectionCamera.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque, commandBufferClearRenderTargetToOne);
+        RemoveBuffers(CameraEvent.BeforeForwardOpaque);
     }
 
+    private void AddBuffers(CameraEvent cameraEvent, bool willUseFrustum, bool validRect)
+    {
+        m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
+        m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferClearRenderTargetToZero);
+        if (validRect)
+        {
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferClearRenderTargetToOne);
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
+        }
+        if (useMirrorMeshForMasking)
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferDrawMesh);
+
+        if (willUseFrustum)
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+    }
+    private void RemoveBuffers(CameraEvent cameraEvent)
+    {
+        m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferClearRenderTargetToZero);
+        m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferDrawMesh);
+        m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferSetRectFull);
+        m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+        m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferClearRenderTargetToOne);
+    }
     private void CreateCommandBuffers(Rect pixelRectFull, Rect pixelRectLimited)
     {
-        var zeroCreated = CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0");
-        var oneCreate = CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1");
-        CreateCommandBuffer(ref commandBufferDrawMesh, "Occlusion buffer - DrawMesh");
-        CreateCommandBuffer(ref commandBufferSetRectFull, "Occlusion buffer - SetRect full");
-        CreateCommandBuffer(ref commandBufferSetRectLimited, "Occlusion buffer - SetRect limited");
+        var zeroCreated = CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0", clear: false);
+        var oneCreate = CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1", clear: false);
+        CreateCommandBuffer(ref commandBufferDrawMesh, "Occlusion buffer - DrawMesh", clear: true);
+        CreateCommandBuffer(ref commandBufferSetRectFull, "Occlusion buffer - SetRect full", clear: true);
+        CreateCommandBuffer(ref commandBufferSetRectLimited, "Occlusion buffer - SetRect limited", clear: true);
 
         if (!m_DepthMaterial)
             CreateMirrorMaskMaterial();
@@ -982,6 +997,7 @@ public class MirrorReflection : MonoBehaviour
         var viewport = new Rect(left, bottom, width, height);
         var cullDistance = Min4(span[0].z, span[1].z, span[2].z, span[3].z);
 
+        cullingCamera.nearClipPlane = cullDistance;
         cullingCamera.CalculateFrustumCorners(viewport, cullDistance, Camera.MonoOrStereoscopicEye.Mono, outCorners);
         cullingCamera.projectionMatrix = Matrix4x4.Frustum(outCorners[0].x, outCorners[2].x, outCorners[0].y, outCorners[2].y, cullDistance, farClipPlane);
         return true;

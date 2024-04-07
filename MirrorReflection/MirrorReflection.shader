@@ -1,12 +1,11 @@
-﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-Shader "FX/MirrorReflection2"
+﻿Shader "FX/MirrorReflection2"
 {
 	Properties
 	{
-		_MainTex("Base (RGB)", 2D) = "white" {}
-		[HideInInspector] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
-		[HideInInspector] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
+        [MainColor][HDR] _Color("Color", Color) = (1,1,1,1)
+		[MainTexture] _MainTex("Base (RGB)", 2D) = "white" {}
+		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
+		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
 	}
 	SubShader
 	{
@@ -17,7 +16,7 @@ Shader "FX/MirrorReflection2"
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
-			#include "UnityCG.cginc"           
+			#include "UnityCG.cginc"
 			#include "UnityInstancing.cginc"
 			struct v2f
 			{
@@ -52,6 +51,7 @@ Shader "FX/MirrorReflection2"
 			sampler2D _MainTex;
 			sampler2D _ReflectionTexLeft;
 			sampler2D _ReflectionTexRight;
+			fixed4 _Color;
 
 			fixed4 frag(v2f i) : SV_Target
 			{
@@ -64,8 +64,9 @@ Shader "FX/MirrorReflection2"
 					tex *= tex2D(_ReflectionTexLeft, proj2);
 				else 
 					tex *= tex2D(_ReflectionTexRight, proj2);
-				return tex;
-			}
+
+                return tex * _Color;
+}
 			ENDCG
 		}
 	}

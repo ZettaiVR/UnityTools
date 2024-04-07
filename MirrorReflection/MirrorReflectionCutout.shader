@@ -1,26 +1,29 @@
-﻿Shader "FX/MirrorReflectionCutout"
+﻿Shader"FX/MirrorReflectionCutout"
 {
 	Properties
 	{
-		_MainTex("Base (RGB)", 2D) = "white" {}
-		[HideInInspector] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
-		[HideInInspector] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
+        [MainColor][HDR] _Color("Color", Color) = (1,1,1,1)
+		[MainTexture] _MainTex("Base (RGB)", 2D) = "white" {}
+		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
+		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
 		[ToggleUI(HideBackground)] _HideBackground("Hide Background", Float) = 0
-        [ToggleUI(IgnoreEffects)] _IgnoreEffects("Ignore Effects", Float) = 0
+        _Transparency("Transparency", Range(0.0, 1.0)) = 1
         //Stencils
-        [Space(50)] _Stencil ("Stencil ID", Float) = 0
+        [Space(20)] _Stencil ("Stencil ID", Float) = 0
         [Enum(UnityEngine.Rendering.CompareFunction)] _StencilCompareAction ("Stencil Compare Function", int) = 0
         [Enum(UnityEngine.Rendering.StencilOp)] _StencilOp ("Stencil Pass Operation", int) = 0
         [Enum(UnityEngine.Rendering.StencilOp)] _StencilFail ("Stencil Fail Operation", int) = 0
         [Enum(UnityEngine.Rendering.StencilOp)] _StencilZFail ("Stencil ZFail Operation", int) = 0
         _StencilWriteMask ("Stencil Write Mask", Float) = 255
         _StencilReadMask ("Stencil Read Mask", Float) = 255
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendSrc ("Blend source", int) = 5
+        [Enum(UnityEngine.Rendering.BlendMode)] _BlendDst ("Blend destination", int) = 10
 	}
 	SubShader
 	{
-		Tags{ "RenderType"="TransparentCutout" "Queue"="AlphaTest" "IgnoreProjector"="True"}
+		Tags{ "RenderType"="Transparent" "Queue"="Transparent" "IgnoreProjector"="True"}
 		ZWrite On
-        AlphaToMask On
+        Blend [_BlendSrc] [_BlendDst]
         LOD 100
         Stencil
         {
@@ -53,9 +56,10 @@
 				UNITY_VERTEX_INPUT_INSTANCE_ID
 			};
 
-			float4 _MainTex_ST;			
+            float4 _MainTex_ST;			
             float _HideBackground;
-            float _IgnoreEffects;
+            float _Transparency;
+            fixed4 _Color;
 			v2f vert(appdata v)
 			{
 				v2f o; 
@@ -79,23 +83,22 @@
 				fixed4 tex = tex2D(_MainTex, i.uv);
 				float4 projCoord = UNITY_PROJ_COORD(i.refl);
 				float2 proj2 = float2(1 - projCoord.x / projCoord.w, projCoord.y / projCoord.w);
-				fixed4 refl;
+				float4 refl;
 				if (unity_StereoEyeIndex == 0) 
 				   refl = tex2D(_ReflectionTexLeft, proj2);
 				else 
 				   refl = tex2D(_ReflectionTexRight, proj2);
-				
+	
 				// Hiding background
-                if (_HideBackground) 
+                if (!_HideBackground) 
 				{
-                    refl.a = refl.a > 0 ? refl.a : _IgnoreEffects != 1 && dot(refl.rgb, fixed3(1,1,1)) / 3 > 0.01 ? 1 : 0;
-                    clip(refl.a);
-                } 
-				else 
-				{
-                    refl.a = 1;
+                   refl.a = 1;
                 }
-				return tex * refl;
+                refl.a *= _Transparency;
+                if (refl.a < 0.001)
+					discard;
+	
+				return tex * refl * _Color;
 			}
 			ENDCG
 		}
