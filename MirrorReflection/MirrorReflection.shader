@@ -1,9 +1,10 @@
-﻿Shader "FX/MirrorReflection2"
+﻿Shader"FX/MirrorReflection2"
 {
 	Properties
 	{
         [MainColor][HDR] _Color("Color", Color) = (1,1,1,1)
 		[MainTexture] _MainTex("Base (RGB)", 2D) = "white" {}
+		[HideInInspector][PerRendererData][ToggleUI] _portalMode("Enable portal mode", Float) = 0
 		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
 		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
 	}
@@ -52,6 +53,7 @@
 			sampler2D _ReflectionTexLeft;
 			sampler2D _ReflectionTexRight;
 			fixed4 _Color;
+			float _portalMode;
 
 			fixed4 frag(v2f i) : SV_Target
 			{
@@ -59,14 +61,25 @@
 
 				fixed4 tex = tex2D(_MainTex, i.uv);
 				float4 projCoord = UNITY_PROJ_COORD(i.refl);
-				float2 proj2 = float2(1 - projCoord.x / projCoord.w, projCoord.y / projCoord.w);
-				if (unity_StereoEyeIndex == 0) 
-					tex *= tex2D(_ReflectionTexLeft, proj2);
-				else 
-					tex *= tex2D(_ReflectionTexRight, proj2);
+				if (_portalMode == 0)
+				{
+				
+				    float2 proj2 = float2(1 - projCoord.x / projCoord.w, projCoord.y / projCoord.w);
+				    if (unity_StereoEyeIndex == 0) 
+				        tex *= tex2D(_ReflectionTexLeft, proj2);
+				    else
+				        tex *= tex2D(_ReflectionTexRight, proj2);
+				}
+				else
+				{
+				    if (unity_StereoEyeIndex == 0) 
+				    tex *= tex2Dproj(_ReflectionTexLeft, UNITY_PROJ_COORD(i.refl));
+				    else
+				        tex *= tex2Dproj(_ReflectionTexRight, UNITY_PROJ_COORD(i.refl));
 
+				}
                 return tex * _Color;
-}
+			}
 			ENDCG
 		}
 	}

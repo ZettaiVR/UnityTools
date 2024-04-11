@@ -7,6 +7,7 @@
 		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexLeft("_ReflectionTexLeft", 2D) = "white" {}
 		[HideInInspector][PerRendererData][NoScaleOffset] _ReflectionTexRight("_ReflectionTexRight", 2D) = "white" {}
 		[ToggleUI(HideBackground)] _HideBackground("Hide Background", Float) = 0
+		[HideInInspector][PerRendererData][ToggleUI] _portalMode("Enable portal mode", Float) = 0
         _Transparency("Transparency", Range(0.0, 1.0)) = 1
         //Stencils
         [Space(20)] _Stencil ("Stencil ID", Float) = 0
@@ -58,7 +59,8 @@
 
             float4 _MainTex_ST;			
             float _HideBackground;
-            float _Transparency;
+			float _Transparency;
+			float _portalMode;
             fixed4 _Color;
 			v2f vert(appdata v)
 			{
@@ -84,11 +86,20 @@
 				float4 projCoord = UNITY_PROJ_COORD(i.refl);
 				float2 proj2 = float2(1 - projCoord.x / projCoord.w, projCoord.y / projCoord.w);
 				float4 refl;
-				if (unity_StereoEyeIndex == 0) 
-				   refl = tex2D(_ReflectionTexLeft, proj2);
-				else 
-				   refl = tex2D(_ReflectionTexRight, proj2);
-	
+				if (_portalMode == 0)
+				{
+				    if (unity_StereoEyeIndex == 0) 
+				        refl = tex2D(_ReflectionTexLeft, proj2);
+				    else
+				        refl = tex2D(_ReflectionTexRight, proj2);
+				}
+				else
+				{
+				    if (unity_StereoEyeIndex == 0) 
+				        refl = tex2Dproj(_ReflectionTexLeft, UNITY_PROJ_COORD(i.refl));
+				    else
+				        refl = tex2Dproj(_ReflectionTexRight, UNITY_PROJ_COORD(i.refl));
+				}
 				// Hiding background
                 if (!_HideBackground) 
 				{
