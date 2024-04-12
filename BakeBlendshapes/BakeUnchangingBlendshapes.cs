@@ -1,7 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
 using System;
-using UnityEditor.Animations;
 #if UNITY_EDITOR
 using UnityEditor;
 
@@ -84,7 +83,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
     private static readonly Dictionary<string, AnimatorPaths> blendShapesPerMeshPath = new Dictionary<string, AnimatorPaths>();
     private static readonly Dictionary<string, Mesh> replacementMeshes = new Dictionary<string, Mesh>();
     private static readonly Dictionary<string, List<BlendShapeValues>> staticValues = new Dictionary<string, List<BlendShapeValues>>();
-    private static void DoingIt(Animator animator, List<string> keepBlendshapes, List<AnimatorController> controllers, bool keepMmd, bool bakeNonMoving)
+    private static void DoingIt(Animator animator, List<string> keepBlendshapes, List<RuntimeAnimatorController> controllers, bool keepMmd, bool bakeNonMoving)
     {
         if (!animator)
             return;
@@ -494,5 +493,5 @@ public class BakeUnchangingBlendshapes : MonoBehaviour
     public bool keepMmd = true;
     public bool bakeNonMoving = true;
     public List<string> keepBlendshapes = new List<string>();
-    public List<AnimatorController> controllers = new List<AnimatorController>();
+    public List<RuntimeAnimatorController> controllers = new List<RuntimeAnimatorController>();
 }
