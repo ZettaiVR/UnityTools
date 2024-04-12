@@ -9,14 +9,22 @@ using UnityEditor;
 [CustomEditor(typeof(BakeUnchangingBlendshapes))]
 public class BakeUnchangingBlendshapesEditor : Editor
 {
-    private const string NewFolderName = "_GeneratedMeshes";
-    private const string AssetFolder = "Assets/" + NewFolderName;
+    private const string GeneratedFolderName = "_GeneratedMeshes";
+    private const string RemovedBlendshapesName = "RemovedBlendshapes";
+    private const string GeneratedFolderPath = "Assets/" + GeneratedFolderName;
+    private const string RemovedBlendshapesPath = GeneratedFolderPath + "/" + RemovedBlendshapesName;
     private Animator animator;
     private GameObject _targetGameObject;
     private BakeUnchangingBlendshapes script;
-    public override void OnInspectorGUI()
+    private GUIStyle textStyle;
+    private void OnEnable()
     {
-        DrawDefaultInspector();
+        Init();
+        FindVisemeBlink();
+    }
+
+    private void Init()
+    {
         if (!_targetGameObject)
         {
             script = (BakeUnchangingBlendshapes)target;
@@ -24,36 +32,74 @@ public class BakeUnchangingBlendshapesEditor : Editor
         }
         if (!animator)
             animator = _targetGameObject.GetComponent<Animator>();
-
-        if (GUILayout.Button("dew it"))
+        if (textStyle == null)
         {
-            DoingIt(animator, script.keepBlendshapes, script.controllers, script.keepMmd, script.bakeNonMoving);
+            try
+            {
+                textStyle = EditorStyles.label;
+                textStyle.wordWrap = true;
+            }
+            catch (NullReferenceException) { }
         }
     }
+
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+        Init();
+        if (GUILayout.Button("Find viseme, blink, and look up/down blendshape names"))
+        {
+            FindVisemeBlink();
+        }
+        GUILayout.Label("Please make sure you have all eye movement related shapekeys (blink, looking up and down) and viseme shapkeys if they are not in the '*v_sil' format in the Keep Blendshapes list before baking.", textStyle);
+        GUILayout.Space(20);
+        if (GUILayout.Button("Bake the unchanging blendshapes"))
+        {
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            DoingIt(animator, script.keepBlendshapes, script.controllers, script.keepMmd, script.bakeNonMoving);
+            sw.Stop();
+            Debug.Log($"BakeUnchangingBlendshapes took {sw.Elapsed.TotalMilliseconds} ms.");
+        }
+    }
+
+    private void FindVisemeBlink()
+    {
+        FindVisemeBlink(_targetGameObject, out var names);
+        if (names.Count > 0)
+        {
+            var keepSet = new HashSet<string>(script.keepBlendshapes);
+            keepSet.UnionWith(names);
+            script.keepBlendshapes.Clear();
+            script.keepBlendshapes.AddRange(keepSet);
+        }
+    }
+
     private static readonly List<Vector3> verts = new List<Vector3>();
     private static readonly List<Vector3> normals = new List<Vector3>();
     private static readonly List<Vector4> tangents = new List<Vector4>();
     private static readonly List<Animator> animators = new List<Animator>();
     private static readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
     private static readonly Dictionary<SkinnedMeshRenderer, HashSet<int>> blendShapesPerMeshObject = new Dictionary<SkinnedMeshRenderer, HashSet<int>>();
-    private static readonly Dictionary<string, HashSet<string>> blendShapesPerMeshPath = new Dictionary<string, HashSet<string>>();
+    private static readonly Dictionary<string, AnimatorPaths> blendShapesPerMeshPath = new Dictionary<string, AnimatorPaths>();
     private static readonly Dictionary<string, Mesh> replacementMeshes = new Dictionary<string, Mesh>();
     private static readonly Dictionary<string, List<BlendShapeValues>> staticValues = new Dictionary<string, List<BlendShapeValues>>();
     private static void DoingIt(Animator animator, List<string> keepBlendshapes, List<AnimatorController> controllers, bool keepMmd, bool bakeNonMoving)
     {
         if (!animator)
             return;
+
+        var root = animator.gameObject;
         blendShapesPerMeshPath.Clear();
         animators.Clear();
-        animator.gameObject.GetComponentsInChildren(true, animators);
-        animators.Add(animator);
+        root.GetComponentsInChildren(true, animators);
         foreach (var item in animators)
         {
-            var controller = animator.runtimeAnimatorController;
+            var controller = item.runtimeAnimatorController;
             if (!controller)
                 continue;
 
-            ProcessAllClips(controller);
+            ProcessAllClips(animator, root);
         }
         var _overrideController = animator.runtimeAnimatorController;
         for (int i = 0; i < controllers.Count; i++)
@@ -61,49 +107,48 @@ public class BakeUnchangingBlendshapesEditor : Editor
             if (!controllers[i])
                 continue;
             animator.runtimeAnimatorController = controllers[i];
-            ProcessAllClips(animator.runtimeAnimatorController);
+            ProcessAllClips(animator, root);
         }
         animator.runtimeAnimatorController = _overrideController;
         animators.Clear();
         staticValues.Clear();
         // find meshes and shapekey indicies
 
+        skinnedMeshRenderers.Clear();
+        animator.GetComponentsInChildren(true, skinnedMeshRenderers);
         var blendShapeData = new List<BlendShapeData>();
         var keepBlendshapesSet = new HashSet<string>(keepBlendshapes);
         replacementMeshes.Clear();
-        foreach (var meshShapes in blendShapesPerMeshPath)
+        foreach (var smr in skinnedMeshRenderers)
         {
-            var meshTransform = animator.transform.Find(meshShapes.Key);
-            if (!meshTransform)
-                continue;
-
-            if (meshTransform.TryGetComponent<SkinnedMeshRenderer>(out var smr) && smr.sharedMesh)
-                blendShapesPerMeshObject[smr] = new HashSet<int>();
-            else
-                continue;
-
-
             var mesh = smr.sharedMesh;
+            if (!mesh)
+                continue;
             int blendShapeCount = mesh.blendShapeCount;
 
             // no blendshapes, no problems
             if (blendShapeCount == 0)
                 continue;
 
-            var blendShapeNames = meshShapes.Value;
-            var blendShapeIndiciesToKeep = blendShapesPerMeshObject[smr];
-
-            foreach (var c in blendShapeNames)
+            var blendShapeIndiciesToKeep = blendShapesPerMeshObject[smr] = new HashSet<int>();
+            var path = AnimationUtility.CalculateTransformPath(smr.transform, root.transform);
+            if (blendShapesPerMeshPath.TryGetValue(path, out var animatorPaths))
             {
-                if (c == null || c.Length <= 11)
-                    continue;
-                var blendShapeName = c.Substring(11);
-                var index = mesh.GetBlendShapeIndex(blendShapeName);
-                if (index < 0)
-                    continue;
-                blendShapeIndiciesToKeep.Add(index);
+                var blendShapeNames = animatorPaths.paths;
+
+                foreach (var c in blendShapeNames)
+                {
+                    if (c == null || c.Length <= 11)
+                        continue;
+                    var blendShapeName = c.Substring(11);
+                    var index = mesh.GetBlendShapeIndex(blendShapeName);
+                    if (index < 0)
+                        continue;
+                    blendShapeIndiciesToKeep.Add(index);
+                }
             }
             // add exceptions
+            List<BlendShapeValues> staticBlendShapeValues = null;
             for (int i = 0; i < blendShapeCount; i++)
             {
                 var blendShapeName = mesh.GetBlendShapeName(i);
@@ -115,48 +160,46 @@ public class BakeUnchangingBlendshapesEditor : Editor
                 {
                     blendShapeIndiciesToKeep.Add(i);
                 }
-                if (visemes.Contains(blendShapeName))
-                {
-                    blendShapeIndiciesToKeep.Add(i);
-                }
             }
+
             // if we keep all blendshapes then no point doing the extra work
             if (blendShapeIndiciesToKeep.Count == blendShapeCount)
                 continue;
 
             blendShapeData.Clear();
             var rendererPath = AnimationUtility.CalculateTransformPath(smr.transform, smr.transform.root);
-            var blendShapeValues = new List<BlendShapeValues>();
-            // only save blendshape data if we keep any of them
-            if (blendShapeIndiciesToKeep.Count > 0)
+            int vertCount = mesh.vertexCount;
+            for (int i = 0; i < blendShapeCount; i++)
             {
-                staticValues.Add(rendererPath, blendShapeValues);
-                int vertCount = mesh.vertexCount;
-                for (int i = 0; i < blendShapeCount; i++)
+                bool isAnimated = blendShapeIndiciesToKeep.Contains(i);
+                var weight = smr.GetBlendShapeWeight(i);
+                var name = mesh.GetBlendShapeName(i);
+                if (weight != 0f)
                 {
-                    bool isAnimated = blendShapeIndiciesToKeep.Contains(i);
-                    var weight = smr.GetBlendShapeWeight(i);
-                    if (weight != 0f)
+                    if (staticBlendShapeValues == null)
                     {
-                        blendShapeValues.Add(new BlendShapeValues(mesh.GetBlendShapeName(i), weight));
+                        staticBlendShapeValues = new List<BlendShapeValues>();
                     }
-                    else if (!isAnimated)
-                        continue;
-                    var frames = mesh.GetBlendShapeFrameCount(i);
-                    var name = mesh.GetBlendShapeName(i);
-                    var blendShapeFrames = new BlendShapeFrameData[frames];
-                    blendShapeData.Add(new BlendShapeData(name, frames, blendShapeFrames, isAnimated));
-                    for (int j = 0; j < frames; j++)
-                    {
-                        Vector3[] dVerts = new Vector3[vertCount];
-                        Vector3[] dNormals = new Vector3[vertCount];
-                        Vector3[] dTangents = new Vector3[vertCount];
-                        var frameWeight = mesh.GetBlendShapeFrameWeight(i, j);
-                        mesh.GetBlendShapeFrameVertices(i, j, dVerts, dNormals, dTangents);
-                        blendShapeFrames[j] = new BlendShapeFrameData(frameWeight, dVerts, dNormals, dTangents);
-                    }
+                    staticBlendShapeValues.Add(new BlendShapeValues(name, weight));
+                }
+                if (!isAnimated && weight == 0f)
+                    continue;
+                var frames = mesh.GetBlendShapeFrameCount(i);
+                var blendShapeFrames = new BlendShapeFrameData[frames];
+                blendShapeData.Add(new BlendShapeData(name, frames, blendShapeFrames, isAnimated, weight));
+                for (int j = 0; j < frames; j++)
+                {
+                    Vector3[] dVerts = new Vector3[vertCount];
+                    Vector3[] dNormals = new Vector3[vertCount];
+                    Vector3[] dTangents = new Vector3[vertCount];
+                    var frameWeight = mesh.GetBlendShapeFrameWeight(i, j);
+                    mesh.GetBlendShapeFrameVertices(i, j, dVerts, dNormals, dTangents);
+                    blendShapeFrames[j] = new BlendShapeFrameData(frameWeight, dVerts, dNormals, dTangents);
                 }
             }
+            if (staticBlendShapeValues != null)
+                staticValues.Add(path, staticBlendShapeValues);
+
             var newMesh = Instantiate(mesh);
             newMesh.ClearBlendShapes();
             replacementMeshes[rendererPath] = newMesh;
@@ -167,13 +210,11 @@ public class BakeUnchangingBlendshapesEditor : Editor
             for (int i = 0; i < blendShapeData.Count; i++)
             {
                 var d = blendShapeData[i];
-                var bakedShape = blendShapeValues.Find(a => a.name == d.name);
-                if (!d.isAnimated && d.frameCount == 1 && bakedShape != null && bakeNonMoving)
+                if (!d.isAnimated && d.frameCount == 1 && bakeNonMoving)
                 {
                     //bake shapekey
-                    bakedShape.baked = true;
                     baked = true;
-                    float weight = bakedShape.weight / 100f;
+                    float weight = d.weight / 100f;
                     var fr = d.blendShapeFrames[0];
                     var dVerts = fr.dVerts;
                     var dNormals = fr.dNormals;
@@ -226,17 +267,16 @@ public class BakeUnchangingBlendshapesEditor : Editor
         }
 
         // create copy
-        var avatarCopy = Instantiate(animator.gameObject);
+        var avatarCopy = Instantiate(root);
         skinnedMeshRenderers.Clear();
         avatarCopy.GetComponentsInChildren(true, skinnedMeshRenderers);
-        avatarCopy.name = animator.gameObject.name;
+        var avatarName = avatarCopy.name = root.name;
         avatarCopy.transform.Translate(Vector3.left);
-        var avatarName = animator.gameObject.name;
-        if (!AssetDatabase.IsValidFolder(AssetFolder))
-            AssetDatabase.CreateFolder("Assets", NewFolderName);
-        string currentAssetSubFolder = $"RemovedBlendshapes-{DateTime.Now:yyyy_MM_dd_HH_mm_ss} - {avatarName}";
-        string currentAssetFolder = AssetFolder + "/" + currentAssetSubFolder;
-        AssetDatabase.CreateFolder(AssetFolder, currentAssetSubFolder);
+        if (avatarCopy.TryGetComponent<BakeUnchangingBlendshapes>(out var thisComponent))
+        {
+            DestroyImmediate(thisComponent);
+        }
+        string currentAssetFolder = CreateFolders(avatarName);
         foreach (var renderer in skinnedMeshRenderers)
         {
             try
@@ -253,7 +293,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
                 {
                     renderer.SetBlendShapeWeight(i, 0f);
                 }
-                var path = $"{currentAssetFolder}/{renderer.name}-{mesh.name}.asset";
+                var path = $"{currentAssetFolder}/{renderer.name}.asset";
                 var uniqueAssetPath = AssetDatabase.GenerateUniqueAssetPath(path);
                 AssetDatabase.CreateAsset(newMesh, uniqueAssetPath);
                 renderer.sharedMesh = newMesh;
@@ -287,46 +327,114 @@ public class BakeUnchangingBlendshapesEditor : Editor
         staticValues.Clear();
     }
 
-    private static void ProcessAllClips(RuntimeAnimatorController controller)
+    private static string CreateFolders(string avatarName)
     {
+        string date = $"{DateTime.Now:yyyy-MM-dd HH.mm.ss}";
+        avatarName = MakeValidFileName(avatarName);
+        string folder = RemovedBlendshapesPath + "/" + avatarName;
+        if (!AssetDatabase.IsValidFolder(GeneratedFolderPath))
+            AssetDatabase.CreateFolder("Assets", GeneratedFolderName);
+        if (!AssetDatabase.IsValidFolder(RemovedBlendshapesPath))
+            AssetDatabase.CreateFolder(GeneratedFolderPath, RemovedBlendshapesName);
+        if (!AssetDatabase.IsValidFolder(folder))
+            AssetDatabase.CreateFolder(RemovedBlendshapesPath, avatarName);
+        string currentAssetSubFolder = $"{date}";
+        string currentAssetFolder = folder + "/" + currentAssetSubFolder;
+        AssetDatabase.CreateFolder(folder, currentAssetSubFolder);
+        return currentAssetFolder;
+    }
+
+    private static string MakeValidFileName(string name)
+    {
+        string invalidChars = System.Text.RegularExpressions.Regex.Escape(new string(System.IO.Path.GetInvalidFileNameChars()));
+        string invalidRegStr = string.Format(@"([{0}]*\.+$)|([{0}]+)", invalidChars);
+
+        return System.Text.RegularExpressions.Regex.Replace(name, invalidRegStr, "_");
+    }
+    private static void ProcessAllClips(Animator animator, GameObject root)
+    {
+        var controller = animator.runtimeAnimatorController;
         var clips = controller.animationClips;
         if (clips == null)
             return;
-
+        var pathToAnimator = AnimationUtility.CalculateTransformPath(animator.transform, root.transform);
         foreach (var c in clips)
         {
             var curves = AnimationUtility.GetObjectReferenceCurveBindings(c);
-            var aa = AnimationUtility.GetCurveBindings(c);
-            foreach (var a in aa)
+            var curveBindings = AnimationUtility.GetCurveBindings(c);
+            foreach (var curveBinding in curveBindings)
             {
-                if (a.type != typeof(SkinnedMeshRenderer) || a.propertyName?.StartsWith("blendShape") != true)
+                if (curveBinding.type != typeof(SkinnedMeshRenderer) || curveBinding.propertyName?.StartsWith("blendShape") != true)
                     continue;
-                if (!blendShapesPerMeshPath.TryGetValue(a.path, out var set))
+                var path = pathToAnimator + (string.IsNullOrEmpty(pathToAnimator) ? "" : "/") + curveBinding.path;
+                if (!blendShapesPerMeshPath.TryGetValue(path, out var data))
                 {
-                    set = blendShapesPerMeshPath[a.path] = new HashSet<string>();
+                    data = blendShapesPerMeshPath[path] = new AnimatorPaths(path);
                 }
-                set.Add(a.propertyName);
+                data.paths.Add(curveBinding.propertyName);
             }
         }
     }
-
+    private static void FindVisemeBlink(GameObject go, out List<string> names)
+    {
+        names = new List<string>();
+        go.GetComponentsInChildren(true, skinnedMeshRenderers);
+        foreach (var item in skinnedMeshRenderers)
+        {
+            if (!item.sharedMesh || item.sharedMesh.blendShapeCount == 0)
+                continue;
+            var mesh = item.sharedMesh;
+            for (int i = 0; i < mesh.blendShapeCount; i++)
+            {
+                var originalName = mesh.GetBlendShapeName(i);
+                if (string.IsNullOrEmpty(originalName))
+                    continue;
+                var name = originalName.ToLowerInvariant();
+                if (name.Contains("blink") || (name.Contains("look") && (name.Contains("up") || name.Contains("down"))))
+                {
+                    names.Add(originalName);
+                    continue;
+                }
+                for (int j = 0; j < faceShapes.Count; j++)
+                {
+                    if (name.Contains(faceShapes[j]))
+                    {
+                        names.Add(originalName);
+                        break;
+                    }
+                }
+            }
+        }
+    }
     private class BlendShapeData
     {
         public string name;
         public int frameCount;
         public bool isAnimated;
+        public float weight;
         public BlendShapeFrameData[] blendShapeFrames;
 
-        public BlendShapeData(string name, int frameCount, BlendShapeFrameData[] blendShapeFrames, bool isAnimated)
+        public BlendShapeData(string name, int frameCount, BlendShapeFrameData[] blendShapeFrames, bool isAnimated, float weight)
         {
             this.name = name;
             this.frameCount = frameCount;
             this.blendShapeFrames = blendShapeFrames;
             this.isAnimated = isAnimated;
+            this.weight = weight;
         }
         public override string ToString()
         {
             return $"name: '{name}', {frameCount} frames, {(isAnimated ? "animated" : "not animated")}";
+        }
+    }
+    private class AnimatorPaths 
+    {
+        public string pathToRenderer;
+        public HashSet<string> paths = new HashSet<string>();
+
+        public AnimatorPaths(string pathToRenderer)
+        {
+            this.pathToRenderer = pathToRenderer;
         }
     }
     private class BlendShapeFrameData
@@ -368,9 +476,9 @@ public class BakeUnchangingBlendshapesEditor : Editor
             return $"'{name}': {weight}, {(isAnimated ? "animated" : "not animated")}, {(baked? "baked" : "not baked")}";
         }
     }
-    private static readonly HashSet<string> visemes = new HashSet<string>
+    private static readonly List<string> faceShapes = new List<string>
     {
-            "v_sil","v_pp","v_ff","v_th","v_dd","v_kk","v_ch","v_ss","v_nn","v_rr","v_aa","v_e","v_ih","v_oh","v_ou"
+            "v_sil","v_pp","v_ff","v_th","v_dd","v_kk","v_ch","v_ss","v_nn","v_rr","v_aa","v_e","v_ih","v_oh","v_ou","blink"
     };
     private static readonly HashSet<string> mmdShapeKeys = new HashSet<string>
     {
