@@ -1,79 +1,14 @@
 ﻿using UnityEngine;
+using UnityEditor;
 using System.Collections.Generic;
 using System;
-#if UNITY_EDITOR
-using UnityEditor;
 
-
-[CustomEditor(typeof(BakeUnchangingBlendshapes))]
-public class BakeUnchangingBlendshapesEditor : Editor
+public static class BakeBlendshapes
 {
     private const string GeneratedFolderName = "_GeneratedMeshes";
     private const string RemovedBlendshapesName = "RemovedBlendshapes";
     private const string GeneratedFolderPath = "Assets/" + GeneratedFolderName;
     private const string RemovedBlendshapesPath = GeneratedFolderPath + "/" + RemovedBlendshapesName;
-    private Animator animator;
-    private GameObject _targetGameObject;
-    private BakeUnchangingBlendshapes script;
-    private GUIStyle textStyle;
-    private void OnEnable()
-    {
-        Init();
-        FindVisemeBlink();
-    }
-
-    private void Init()
-    {
-        if (!_targetGameObject)
-        {
-            script = (BakeUnchangingBlendshapes)target;
-            _targetGameObject = script.gameObject;
-        }
-        if (!animator)
-            animator = _targetGameObject.GetComponent<Animator>();
-        if (textStyle == null)
-        {
-            try
-            {
-                textStyle = EditorStyles.label;
-                textStyle.wordWrap = true;
-            }
-            catch (NullReferenceException) { }
-        }
-    }
-
-    public override void OnInspectorGUI()
-    {
-        DrawDefaultInspector();
-        Init();
-        if (GUILayout.Button("Find viseme, blink, and look up/down blendshape names"))
-        {
-            FindVisemeBlink();
-        }
-        GUILayout.Label("Please make sure you have all eye movement related shapekeys (blink, looking up and down) and viseme shapkeys if they are not in the '*v_sil' format in the Keep Blendshapes list before baking.", textStyle);
-        GUILayout.Space(20);
-        if (GUILayout.Button("Bake the unchanging blendshapes"))
-        {
-            var sw = new System.Diagnostics.Stopwatch();
-            sw.Start();
-            DoingIt(animator, script.keepBlendshapes, script.controllers, script.keepMmd, script.bakeNonMoving);
-            sw.Stop();
-            Debug.Log($"BakeUnchangingBlendshapes took {sw.Elapsed.TotalMilliseconds} ms.");
-        }
-    }
-
-    private void FindVisemeBlink()
-    {
-        FindVisemeBlink(_targetGameObject, out var names);
-        if (names.Count > 0)
-        {
-            var keepSet = new HashSet<string>(script.keepBlendshapes);
-            keepSet.UnionWith(names);
-            script.keepBlendshapes.Clear();
-            script.keepBlendshapes.AddRange(keepSet);
-        }
-    }
-
     private static readonly List<Vector3> verts = new List<Vector3>();
     private static readonly List<Vector3> normals = new List<Vector3>();
     private static readonly List<Vector4> tangents = new List<Vector4>();
@@ -83,7 +18,19 @@ public class BakeUnchangingBlendshapesEditor : Editor
     private static readonly Dictionary<string, AnimatorPaths> blendShapesPerMeshPath = new Dictionary<string, AnimatorPaths>();
     private static readonly Dictionary<string, Mesh> replacementMeshes = new Dictionary<string, Mesh>();
     private static readonly Dictionary<string, List<BlendShapeValues>> staticValues = new Dictionary<string, List<BlendShapeValues>>();
-    private static void DoingIt(Animator animator, List<string> keepBlendshapes, List<RuntimeAnimatorController> controllers, bool keepMmd, bool bakeNonMoving)
+    private static readonly List<string> cleanupAssets = new List<string>();
+
+    public static void CleanupTemp()
+    {
+        foreach (var path in cleanupAssets)
+        {
+            AssetDatabase.DeleteAsset(path);
+        }
+        cleanupAssets.Clear();
+        AssetDatabase.Refresh();
+    }
+
+    public static void Process(Animator animator, List<string> keepBlendshapes, List<RuntimeAnimatorController> controllers, bool keepMmd, bool bakeNonMoving, bool makeCopy, bool addToClenup)
     {
         if (!animator)
             return;
@@ -199,7 +146,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
             if (staticBlendShapeValues != null)
                 staticValues.Add(path, staticBlendShapeValues);
 
-            var newMesh = Instantiate(mesh);
+            var newMesh = GameObject.Instantiate(mesh);
             newMesh.ClearBlendShapes();
             replacementMeshes[rendererPath] = newMesh;
             newMesh.GetVertices(verts);
@@ -264,16 +211,23 @@ public class BakeUnchangingBlendshapesEditor : Editor
                 newMesh.SetTangents(tangents);
             }
         }
-
-        // create copy
-        var avatarCopy = Instantiate(root);
         skinnedMeshRenderers.Clear();
-        avatarCopy.GetComponentsInChildren(true, skinnedMeshRenderers);
-        var avatarName = avatarCopy.name = root.name;
-        avatarCopy.transform.Translate(Vector3.left);
-        if (avatarCopy.TryGetComponent<BakeUnchangingBlendshapes>(out var thisComponent))
+        var avatarName = root.name;
+        if (makeCopy)
         {
-            DestroyImmediate(thisComponent);
+            // create copy
+            var avatarCopy = GameObject.Instantiate(root);
+            avatarCopy.GetComponentsInChildren(true, skinnedMeshRenderers);
+            avatarCopy.name = root.name;
+            avatarCopy.transform.Translate(Vector3.left);
+            if (avatarCopy.TryGetComponent<ManualBakeBlendshapes>(out var thisComponent))
+            {
+                GameObject.DestroyImmediate(thisComponent);
+            }
+        }
+        else
+        {
+            root.GetComponentsInChildren(true, skinnedMeshRenderers);
         }
         string currentAssetFolder = CreateFolders(avatarName);
         foreach (var renderer in skinnedMeshRenderers)
@@ -295,6 +249,10 @@ public class BakeUnchangingBlendshapesEditor : Editor
                 var path = $"{currentAssetFolder}/{renderer.name}.asset";
                 var uniqueAssetPath = AssetDatabase.GenerateUniqueAssetPath(path);
                 AssetDatabase.CreateAsset(newMesh, uniqueAssetPath);
+                if (addToClenup)
+                { 
+                    cleanupAssets.Add(uniqueAssetPath);
+                }
                 renderer.sharedMesh = newMesh;
 
                 if (!staticValues.TryGetValue(name, out var blendShapeValues))
@@ -374,7 +332,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
             }
         }
     }
-    private static void FindVisemeBlink(GameObject go, out List<string> names)
+    public static void FindVisemeBlink(GameObject go, out List<string> names)
     {
         names = new List<string>();
         go.GetComponentsInChildren(true, skinnedMeshRenderers);
@@ -426,7 +384,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
             return $"name: '{name}', {frameCount} frames, {(isAnimated ? "animated" : "not animated")}";
         }
     }
-    private class AnimatorPaths 
+    private class AnimatorPaths
     {
         public string pathToRenderer;
         public HashSet<string> paths = new HashSet<string>();
@@ -451,7 +409,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
         }
         public override string ToString()
         {
-            return $"{weight} weight, has {dVerts?.Length ?? 0} verts{(dNormals != null? ", normals" : "")}{(dTangents != null ? ", tangents" : "")}";
+            return $"{weight} weight, has {dVerts?.Length ?? 0} verts{(dNormals != null ? ", normals" : "")}{(dTangents != null ? ", tangents" : "")}";
         }
     }
     private class BlendShapeValues
@@ -472,7 +430,7 @@ public class BakeUnchangingBlendshapesEditor : Editor
         }
         public override string ToString()
         {
-            return $"'{name}': {weight}, {(isAnimated ? "animated" : "not animated")}, {(baked? "baked" : "not baked")}";
+            return $"'{name}': {weight}, {(isAnimated ? "animated" : "not animated")}, {(baked ? "baked" : "not baked")}";
         }
     }
     private static readonly List<string> faceShapes = new List<string>
@@ -484,14 +442,4 @@ public class BakeUnchangingBlendshapesEditor : Editor
        "困る","怒り","上","下","眉上げ","不機嫌","左眉上げ","左眉不機嫌","左眉怒り","左眉困り","右眉上げ","右眉不機嫌","右眉怒り","右眉困り","まばたき","笑い",
         "ウィンク","ウィンク２","ウインク右","ｳィﾝｸ右２","なごみ","はぅ","こらっ","くわっ","じと目","あ","い","う","え","お","▲","δ","∧","あ２","ああ","いい","瞳小"
     };
-}
-
-#endif
-[RequireComponent(typeof(Animator))]
-public class BakeUnchangingBlendshapes : MonoBehaviour
-{
-    public bool keepMmd = true;
-    public bool bakeNonMoving = true;
-    public List<string> keepBlendshapes = new List<string>();
-    public List<RuntimeAnimatorController> controllers = new List<RuntimeAnimatorController>();
 }
