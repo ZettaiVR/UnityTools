@@ -3,14 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using Unity.Collections;
-using System.Reflection;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
 namespace Zettai
 {
-    [RequireComponent(typeof(Animator))]
     public class RemoveUnneededBones : MonoBehaviour
     {
         public bool save = true;
@@ -24,9 +22,10 @@ namespace Zettai
         public static List<string> createdAssetNames = new List<string>();
         private readonly static System.Diagnostics.Stopwatch sw1 = new System.Diagnostics.Stopwatch();
         private readonly static System.Diagnostics.Stopwatch sw2 = new System.Diagnostics.Stopwatch();
+
         public static void Remove(Transform root, bool save = true)
         {
-            if (root == null || !root.CompareTag(MethodBase.GetCurrentMethod().DeclaringType.Name))
+            if (!root)
                 return;
             sw1.Restart();
             sw2.Reset();
