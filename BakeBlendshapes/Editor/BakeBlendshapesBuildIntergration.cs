@@ -121,9 +121,11 @@ public class BakeBlendshapesBuildIntergration
                         list.AddRange(avatar3.specialAnimationLayers);
                         for (int i = 0; i < list.Count; i++)
                         {
-                            if (list[i].isEnabled && !list[i].isDefault)
+                            var item = list[i];
+                            var valid = !item.isDefault; 
+                            if (valid)
                             {
-                                controllers.Add(list[i].animatorController);
+                                controllers.Add(item.animatorController);
                             }
                         }
                     }
@@ -132,7 +134,6 @@ public class BakeBlendshapesBuildIntergration
                 keepBlendshapes.RemoveAll(a => string.IsNullOrEmpty(a));
                 BakeBlendshapes.Process(animator, keepBlendshapes, controllers, true, true, false, true);
             }
-
             catch (Exception ex) { Debug.LogException(ex); }
             return true;
         }

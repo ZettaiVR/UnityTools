@@ -229,7 +229,7 @@ public static class BakeBlendshapes
         {
             root.GetComponentsInChildren(true, skinnedMeshRenderers);
         }
-        string currentAssetFolder = CreateFolders(avatarName);
+        string currentAssetFolder = CreateFolders(avatarName, addToClenup);
         foreach (var renderer in skinnedMeshRenderers)
         {
             try
@@ -284,20 +284,27 @@ public static class BakeBlendshapes
         staticValues.Clear();
     }
 
-    private static string CreateFolders(string avatarName)
+    private static string CreateFolders(string avatarName, bool addToClenup)
     {
         string date = $"{DateTime.Now:yyyy-MM-dd HH.mm.ss}";
         avatarName = MakeValidFileName(avatarName);
-        string folder = RemovedBlendshapesPath + "/" + avatarName;
+        string folder = addToClenup? RemovedBlendshapesPath : (RemovedBlendshapesPath + "/" + avatarName);
+        string currentAssetFolder = folder;
+
         if (!AssetDatabase.IsValidFolder(GeneratedFolderPath))
             AssetDatabase.CreateFolder("Assets", GeneratedFolderName);
+
         if (!AssetDatabase.IsValidFolder(RemovedBlendshapesPath))
             AssetDatabase.CreateFolder(GeneratedFolderPath, RemovedBlendshapesName);
-        if (!AssetDatabase.IsValidFolder(folder))
-            AssetDatabase.CreateFolder(RemovedBlendshapesPath, avatarName);
-        string currentAssetSubFolder = $"{date}";
-        string currentAssetFolder = folder + "/" + currentAssetSubFolder;
-        AssetDatabase.CreateFolder(folder, currentAssetSubFolder);
+
+        if (!addToClenup)
+        {
+            if (!AssetDatabase.IsValidFolder(folder))
+                AssetDatabase.CreateFolder(RemovedBlendshapesPath, avatarName);
+            string currentAssetSubFolder = $"{date}";
+            currentAssetFolder = folder + "/" + currentAssetSubFolder;
+            AssetDatabase.CreateFolder(folder, currentAssetSubFolder);
+        }
         return currentAssetFolder;
     }
 
