@@ -44,6 +44,8 @@ public class PortalReflection : MonoBehaviour
     private RenderTexture m_ReflectionTextureRight;
     private MaterialPropertyBlock materialPropertyBlock;
 
+    private const int PortalLayer = 4;
+    private const int PortalLayerExcludeMask = ~(1 << PortalLayer);
     private static bool s_InsideRendering = false;
     private readonly List<Material> m_savedSharedMaterials = new List<Material>();   // Only relevant for the editor
     private static readonly Quaternion rotatePortal = Quaternion.Euler(new Vector3(90, 180, 0));
@@ -54,7 +56,7 @@ public class PortalReflection : MonoBehaviour
         copySupported = SystemInfo.copyTextureSupport.HasFlag(CopyTextureSupport.Basic);
 
         // Move portal to water layer
-        gameObject.layer = 4;
+        gameObject.layer = PortalLayer;
         materialPropertyBlock = new MaterialPropertyBlock();
         m_Renderer = GetComponent<MeshRenderer>();
         if (!m_Renderer)
@@ -171,8 +173,8 @@ public class PortalReflection : MonoBehaviour
             return;
         }
         // Force portal to Water layer
-        if (gameObject.layer != 4)
-            gameObject.layer = 4;
+        if (gameObject.layer != PortalLayer)
+            gameObject.layer = PortalLayer;
 
         // Maximize texture resolution
         var res = UpdateRenderResolution(currentCam.pixelWidth, currentCam.pixelHeight, MaxTextureSizePercent, resolutionLimit);
@@ -245,7 +247,7 @@ public class PortalReflection : MonoBehaviour
         SetupMsaaTexture(ref m_ReflectionTextureMSAA, useMsaaTexture, widthHeightMsaa, currentCam.allowHDR);
 
         var reflectionTexture = isRightEye ? m_ReflectionTextureRight : m_ReflectionTextureLeft;
-        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, useMsaaTexture);
+        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, portalNormalAvg, useMsaaTexture);
         if (isRightEye)
             m_ReflectionTextureRight = reflectionTexture;
         else
@@ -262,7 +264,7 @@ public class PortalReflection : MonoBehaviour
         m_ReflectionCamera.depthTextureMode = currentCam.depthTextureMode | DepthTextureMode.Depth;
         m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
-        m_ReflectionCamera.cullingMask = -17 & m_ReflectLayers.value; // mirrors and portals never render the water layer, as they are on the water layer. mask: 1111 1111 1111 1111 1111 1111 1110 1111
+        m_ReflectionCamera.cullingMask = PortalLayerExcludeMask & m_ReflectLayers.value; // mirrors and portals never render their own layer.
 
         var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
         RenderPortal(currentCam, portalPos, reflectionTexture, useOcclusion, viewMatrix);
@@ -304,9 +306,7 @@ public class PortalReflection : MonoBehaviour
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(portalClipPlane);
         if (useOcclusion)
         {
-            var planePortal = new Plane(portalUp, portalNewPos);
-            var cullingPos = m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
-            m_CullingCamera.transform.LookAt(planePortal.ClosestPointOnPlane(cullingPos), portalUp);
+            m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
             m_CullingCamera.farClipPlane = currentCam.farClipPlane;
             var validCulling = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, portalCorners, portalSurfacePlane, portalLocalToWorld.MultiplyPoint3x4(meshMid), currentCam.farClipPlane);
             if (validCulling)

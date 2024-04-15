@@ -21,6 +21,9 @@ public class MirrorReflection : MonoBehaviour
     private const string ReflectionCameraName = "Reflection camera";
     private const string CullingCameraName = "Culling camera";
     private const string MirrorScaleOffset = "Scale offset";
+    private const int MirrorLayer = 4;
+    private const int MirrorLayerExcludeMask = ~(1 << MirrorLayer);
+
     public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x4;
     public int resolutionLimit = 4096; 
     [Range(0.01f, 1f)]
@@ -126,8 +129,6 @@ public class MirrorReflection : MonoBehaviour
 #endif
         copySupported = SystemInfo.copyTextureSupport.HasFlag(CopyTextureSupport.Basic);
 
-        // Move mirror to water layer
-        gameObject.layer = 4;
         materialPropertyBlock = new MaterialPropertyBlock();
 
         if (!m_DepthMaterial)
@@ -426,9 +427,9 @@ public class MirrorReflection : MonoBehaviour
             return;
         }
         // Rendering will happen.
-        // Force mirrors to Water layer
-        if (gameObject.layer != 4)
-            gameObject.layer = 4;
+        // Force mirrors to their own layer
+        if (gameObject.layer != MirrorLayer)
+            gameObject.layer = MirrorLayer;
                 
         // Maximize the mirror texture resolution
         var res = UpdateRenderResolution(currentCam.pixelWidth, currentCam.pixelHeight, MaxTextureSizePercent, resolutionLimit);
@@ -583,7 +584,7 @@ public class MirrorReflection : MonoBehaviour
         SetupMsaaTexture(ref m_ReflectionTextureMSAA, useMsaaTexture, widthHeightMsaa, currentCam.allowHDR);       
 
         var reflectionTexture = isRightEye ? m_ReflectionTextureRight : m_ReflectionTextureLeft;
-        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, useMsaaTexture);
+        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, mirrorNormalAvg, useMsaaTexture);
         if (isRightEye)
             m_ReflectionTextureRight = reflectionTexture;
         else
@@ -600,7 +601,7 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.depthTextureMode = currentCam.depthTextureMode | DepthTextureMode.Depth;
         m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
-        m_ReflectionCamera.cullingMask = -17 & m_ReflectLayers.value; // mirrors never render the water layer, as they are on the water layer. mask: 1111 1111 1111 1111 1111 1111 1110 1111
+        m_ReflectionCamera.cullingMask = MirrorLayerExcludeMask & m_ReflectLayers.value; // mirrors never render their own layer
 
         var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
 
@@ -650,7 +651,8 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
         if (useOcclusion)
         {
-            m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
+            var reflectionCamPos = m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
+            m_CullingCamera.transform.LookAt(mirrorPlane.ClosestPointOnPlane(reflectionCamPos), transform.up);
             m_CullingCamera.farClipPlane = currentCam.farClipPlane;
             var validCulling = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, worldCorners, mirrorPlane, ltwm.MultiplyPoint3x4(meshMid), currentCam.farClipPlane);
             if (validCulling)
@@ -821,7 +823,7 @@ public class MirrorReflection : MonoBehaviour
     }
     // On-demand create any objects we need
     internal static void CreateMirrorObjects(Transform transform, ref RenderTexture reflectionTexture, ref Transform scaleOffset, ref Camera m_CullingCamera, ref Camera m_ReflectionCamera, 
-        bool allowHDR, Vector3Int widthHeightMsaa, bool useMsaaTexture)
+        bool allowHDR, Vector3Int widthHeightMsaa, Vector3 normal, bool useMsaaTexture)
     {
         int width = widthHeightMsaa.x;
         int height = widthHeightMsaa.y;
@@ -829,12 +831,7 @@ public class MirrorReflection : MonoBehaviour
         // Reflection render texture
         int msaa = useMsaaTexture ? 1 : actualMsaa;
         SetupRenderTexture(ref reflectionTexture, width, height, !useMsaaTexture, msaa, allowHDR);
-        var hideFlags =
-#if UNITY_EDITOR
-            HideFlags.DontSave;
-#else
-            HideFlags.HideAndDontSave;
-#endif
+        var hideFlags = Application.isEditor ? HideFlags.DontSave : HideFlags.HideAndDontSave;
         if (!scaleOffset)
         {
             scaleOffset = new GameObject(MirrorScaleOffset).transform;
@@ -849,6 +846,8 @@ public class MirrorReflection : MonoBehaviour
         {
             GameObject _culling = new GameObject(CullingCameraName);
             _culling.transform.SetParent(scaleOffset);
+            _culling.transform.localPosition = -normal;
+            _culling.transform.LookAt(transform.position);
             m_CullingCamera = _culling.AddComponent<Camera>();
             _culling.hideFlags = hideFlags;
         }
