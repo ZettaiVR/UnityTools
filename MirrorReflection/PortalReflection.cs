@@ -253,7 +253,7 @@ public class PortalReflection : MonoBehaviour
         else
             m_ReflectionTextureLeft = reflectionTexture;
 
-        UpdateCameraModes(currentCam, m_ReflectionCamera, clearFlags, backgroundColor);
+        UpdateCameraModes(currentCam, m_ReflectionCamera, m_CullingCamera, clearFlags, backgroundColor);
 
         var targetTexture = useMsaaTexture ? m_ReflectionTextureMSAA : reflectionTexture;
 
@@ -266,27 +266,37 @@ public class PortalReflection : MonoBehaviour
         m_ReflectionCamera.targetTexture = targetTexture;
         m_ReflectionCamera.cullingMask = PortalLayerExcludeMask & m_ReflectLayers.value; // mirrors and portals never render their own layer.
 
-        var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
-        RenderPortal(currentCam, portalPos, reflectionTexture, useOcclusion, viewMatrix);
+        RenderPortal(currentCam, portalPos, reflectionTexture, useOcclusion, isStereo, eye);
     }
-    private void RenderPortal(Camera currentCam, Vector3 portalPos, RenderTexture reflectionTexture, bool useOcclusion, Matrix4x4 viewMatrix)
+    private void RenderPortal(Camera currentCam, Vector3 portalPos, RenderTexture reflectionTexture, bool useOcclusion, bool isStereo, Camera.MonoOrStereoscopicEye eye)
     {
+        var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
+        var _portalPos = portalPos;
+        var currentPos = transform.position;
+        var targetPos = portalTarget.position;
+        portalPos = Vector3.zero;
+        transform.position -= _portalPos;
+        portalTarget.position -= _portalPos;
+        var viewMatrix0 = isStereo ? m_CullingCamera.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : m_CullingCamera.worldToCameraMatrix;
         var portalSurfaceRot = Quaternion.FromToRotation(portalNormalAvg, Vector3.forward);
         var portalSurfaceLtwm = Matrix4x4.TRS(portalPos, portalSurfaceRot, Vector3.one);
         var portalLtwm = portalTarget.localToWorldMatrix * rotatePortalTrs;
         var portalUp = portalLtwm.MultiplyVector(Vector3.up);
         var portalNewPos = (Vector3)portalLtwm.GetColumn(3);
-        var portalCameraToWorldMatrix = portalLtwm * portalSurfaceLtwm.inverse * viewMatrix.inverse;
+        var portalCameraToWorldMatrix = portalLtwm * portalSurfaceLtwm.inverse * viewMatrix0.inverse;
         var portalLocalToWorld = portalLtwm * Matrix4x4.Scale(m_Renderer.localToWorldMatrix.lossyScale) * meshTrs.inverse;
         var portalCorners = meshCorners.MultiplyPoint3x4(portalLocalToWorld);
-
         var rotationDiff = portalLtwm.rotation * Quaternion.Inverse(portalSurfaceRot);
         var portalCamPos = portalCameraToWorldMatrix.GetColumn(3);
         var portalCamRot = rotationDiff * currentCam.transform.rotation;
         m_ReflectionCamera.transform.SetPositionAndRotation(portalCamPos, portalCamRot);
+        m_ReflectionCamera.ResetWorldToCameraMatrix();
+        m_ReflectionCamera.projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
 
-        if (!TryGetRectPixel(m_ReflectionCamera, m_CullingCamera, portalCorners, boundsLocalSpace, portalLocalToWorld, out var portalFrustum, out float portalNearDistance, out Rect portalRect, out var portalSurfacePlane))
+        if (!TryGetRectPixel(m_ReflectionCamera, portalCorners, boundsLocalSpace, portalLocalToWorld, out var portalFrustum, out float portalNearDistance, out Rect portalRect, out var portalSurfacePlane))
         {
+            transform.position = currentPos;
+            portalTarget.position = targetPos;
             return;
         }
 
@@ -302,23 +312,38 @@ public class PortalReflection : MonoBehaviour
             m_ReflectionCamera.projectionMatrix = portalFrustum;
             m_ReflectionCamera.nearClipPlane = portalNearDistance;
         }
-        var portalClipPlane = CameraSpacePlane(m_ReflectionCamera.worldToCameraMatrix, portalNewPos, -portalUp, 1.0f);
-        m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(portalClipPlane);
+
         if (useOcclusion)
         {
-            m_CullingCamera.transform.position = m_ReflectionCamera.transform.position;
-            m_CullingCamera.farClipPlane = currentCam.farClipPlane;
-            var validCulling = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, portalCorners, portalSurfacePlane, portalLocalToWorld.MultiplyPoint3x4(meshMid), currentCam.farClipPlane);
-            if (validCulling)
-            {
-                m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
-            }
-            else
-            {
-                m_ReflectionCamera.useOcclusionCulling = false;
-            }
+            var cullingPos = m_ReflectionCamera.transform.position;
+            ResetCullingCamera(m_CullingCamera, cullingPos);
+            var planePortal = new Plane(portalUp, portalNewPos);
+            m_CullingCamera.transform.LookAt(planePortal.ClosestPointOnPlane(cullingPos), portalUp);
+            var farclip = m_CullingCamera.farClipPlane = currentCam.farClipPlane;
+            useOcclusion = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, portalCorners, portalSurfacePlane, portalLocalToWorld.MultiplyPoint3x4(meshMid), farclip);
         }
 
+        portalPos = _portalPos;
+        transform.position = currentPos;
+        portalTarget.position = targetPos;
+        portalSurfaceLtwm = Matrix4x4.TRS(portalPos, portalSurfaceRot, Vector3.one);
+        portalLtwm = portalTarget.localToWorldMatrix * rotatePortalTrs;
+        portalUp = portalLtwm.MultiplyVector(Vector3.up);
+        portalNewPos = (Vector3)portalLtwm.GetColumn(3);
+        portalCameraToWorldMatrix = portalLtwm * portalSurfaceLtwm.inverse * viewMatrix.inverse;
+        rotationDiff = portalLtwm.rotation * Quaternion.Inverse(portalSurfaceRot);
+        portalCamPos = portalCameraToWorldMatrix.GetColumn(3);
+        portalCamRot = rotationDiff * currentCam.transform.rotation;
+        m_ReflectionCamera.transform.SetPositionAndRotation(portalCamPos, portalCamRot);
+
+
+        var portalClipPlane = CameraSpacePlane(m_ReflectionCamera.worldToCameraMatrix, portalNewPos, -portalUp);
+        m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(portalClipPlane);
+        m_ReflectionCamera.useOcclusionCulling = useOcclusion;
+        if (useOcclusion)
+        {
+            m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
+        }
         m_ReflectionCamera.Render();
 
         if (useMsaaTexture)
