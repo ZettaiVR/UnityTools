@@ -822,6 +822,7 @@ public class MirrorReflection : MonoBehaviour
             dest2.enabled = false;
             var srcTransform = src.transform;
             dest2.transform.SetPositionAndRotation(srcTransform.position, srcTransform.rotation);
+            dest2.transform.localScale = srcTransform.lossyScale;
             dest2.ResetWorldToCameraMatrix();
         }
         if (clearFlags != ClearFlags.Color && src.clearFlags == CameraClearFlags.Skybox)
