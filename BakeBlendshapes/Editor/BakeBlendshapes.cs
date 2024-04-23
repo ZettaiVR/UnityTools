@@ -14,7 +14,6 @@ public static class BakeBlendshapes
     private static readonly List<Vector4> tangents = new List<Vector4>();
     private static readonly List<Animator> animators = new List<Animator>();
     private static readonly List<SkinnedMeshRenderer> skinnedMeshRenderers = new List<SkinnedMeshRenderer>();
-    private static readonly Dictionary<SkinnedMeshRenderer, HashSet<int>> blendShapesPerMeshObject = new Dictionary<SkinnedMeshRenderer, HashSet<int>>();
     private static readonly Dictionary<string, AnimatorPaths> blendShapesPerMeshPath = new Dictionary<string, AnimatorPaths>();
     private static readonly Dictionary<string, Mesh> replacementMeshes = new Dictionary<string, Mesh>();
     private static readonly Dictionary<string, List<BlendShapeValues>> staticValues = new Dictionary<string, List<BlendShapeValues>>();
@@ -76,7 +75,7 @@ public static class BakeBlendshapes
             if (blendShapeCount == 0)
                 continue;
 
-            var blendShapeIndiciesToKeep = blendShapesPerMeshObject[smr] = new HashSet<int>();
+            var blendShapeIndiciesToKeep = new HashSet<int>();
             var path = AnimationUtility.CalculateTransformPath(smr.transform, root.transform);
             if (blendShapesPerMeshPath.TryGetValue(path, out var animatorPaths))
             {
@@ -98,7 +97,7 @@ public static class BakeBlendshapes
             for (int i = 0; i < blendShapeCount; i++)
             {
                 var blendShapeName = mesh.GetBlendShapeName(i);
-                if (keepBlendshapesSet.Contains(blendShapeName))
+                if (keepBlendshapesSet.Contains(blendShapeName) || keepBlendshapesSet.Contains(path + "/" + blendShapeName))
                 {
                     blendShapeIndiciesToKeep.Add(i);
                 }
@@ -278,7 +277,6 @@ public static class BakeBlendshapes
         AssetDatabase.SaveAssets();
         animators.Clear();
         skinnedMeshRenderers.Clear();
-        blendShapesPerMeshObject.Clear();
         blendShapesPerMeshPath.Clear();
         replacementMeshes.Clear();
         staticValues.Clear();

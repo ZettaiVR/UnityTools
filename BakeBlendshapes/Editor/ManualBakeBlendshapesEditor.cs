@@ -17,9 +17,15 @@ public class ManualBakeBlendshapesEditor : Editor
         {
             script = (ManualBakeBlendshapes)target;
             _targetGameObject = script.gameObject;
+            if (!animator)
+                animator = _targetGameObject.GetComponent<Animator>();
+            if (script && animator && animator.runtimeAnimatorController)
+            {
+                var controller = animator.runtimeAnimatorController;
+                if (!script.controllers.Contains(controller))
+                    script.controllers.Add(controller);
+            }
         }
-        if (!animator)
-            animator = _targetGameObject.GetComponent<Animator>();
         if (textStyle == null)
         {
             try
@@ -35,10 +41,17 @@ public class ManualBakeBlendshapesEditor : Editor
     {
         DrawDefaultInspector();
         Init();
-        if (GUILayout.Button("Find viseme, blink, and look up/down blendshape names"))
+        GUILayout.Space(20);
+        if (GUILayout.Button("Guess viseme, blink, and look up/down blendshape names"))
         {
             FindVisemeBlink();
         }
+        GUILayout.Space(20);
+        if (GUILayout.Button("Find controllers and bledshapes from avatar"))
+        {
+            FindControllersFromAvatar();
+        }
+        GUILayout.Space(20);
         GUILayout.Label("Please make sure you have all eye movement related shapekeys (blink, looking up and down) and viseme shapkeys if they are not in the '*v_sil' format in the Keep Blendshapes list before baking.", textStyle);
         GUILayout.Space(20);
         if (GUILayout.Button("Bake the unchanging blendshapes"))
@@ -49,6 +62,24 @@ public class ManualBakeBlendshapesEditor : Editor
             sw.Stop();
             Debug.Log($"BakeUnchangingBlendshapes took {sw.Elapsed.TotalMilliseconds} ms.");
         }
+    }
+
+    private void FindControllersFromAvatar()
+    {
+        if (!script)
+            return;
+        var keepBlendshapes = script.keepBlendshapes;
+        var controllers = script.controllers;
+        BakeBlendshapesBuildIntergration.FindControllersVRCSDK2(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntergration.FindControllersVRCSDK3(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntergration.FindControllersCVRAvatar(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntergration.FindControllersCVRProp(_targetGameObject, keepBlendshapes, controllers);
+        var tempBlendshapes = new HashSet<string>(keepBlendshapes);
+        keepBlendshapes.Clear();
+        keepBlendshapes.AddRange(tempBlendshapes);
+        var tempControllers = new HashSet<RuntimeAnimatorController>(controllers);
+        controllers.Clear();
+        controllers.AddRange(tempControllers);
     }
 
     private void FindVisemeBlink()
@@ -65,6 +96,6 @@ public class ManualBakeBlendshapesEditor : Editor
     private void OnEnable()
     {
         Init();
-        FindVisemeBlink();
+        FindControllersFromAvatar();
     }
 }
