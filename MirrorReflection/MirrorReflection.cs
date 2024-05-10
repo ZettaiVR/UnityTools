@@ -36,6 +36,7 @@ public class MirrorReflection : MonoBehaviour
     public bool useFrustum = true;
     public bool useOcclusionCulling = true;
     public bool disableOcclusionWhenTransparent = false;
+    public bool copyStreamingController = true;
     public ClearFlags clearFlags = ClearFlags.Default;
     public Color backgroundColor = Color.clear;
 
@@ -592,7 +593,7 @@ public class MirrorReflection : MonoBehaviour
         else
             m_ReflectionTextureLeft = reflectionTexture;
 
-        UpdateCameraModes(currentCam, m_ReflectionCamera, m_CullingCamera, clearFlags, backgroundColor);
+        UpdateCameraModes(currentCam, m_ReflectionCamera, m_CullingCamera, clearFlags, backgroundColor, copyStreamingController);
 
         var targetTexture = useMsaaTexture ? m_ReflectionTextureMSAA : reflectionTexture;
 
@@ -809,9 +810,9 @@ public class MirrorReflection : MonoBehaviour
             m_ReflectionTextureMSAA = null;
         }
     }
-    internal static void UpdateCameraModes(Camera src, Camera dest, Camera dest2, ClearFlags clearFlags, Color backgroundColor)
+    internal static void UpdateCameraModes(Camera src, Camera dest, Camera dest2, ClearFlags clearFlags, Color backgroundColor, bool copyStreamingController)
     {
-        if (!dest)
+        if (!src || !dest)
             return;
         // set camera to clear the same way as current camera
         dest.CopyFrom(src);
@@ -824,6 +825,19 @@ public class MirrorReflection : MonoBehaviour
             dest2.transform.SetPositionAndRotation(srcTransform.position, srcTransform.rotation);
             dest2.transform.localScale = srcTransform.lossyScale;
             dest2.ResetWorldToCameraMatrix();
+        }
+        if (copyStreamingController && src.TryGetComponent(out StreamingController streamingController)) 
+        {
+            if (!dest.TryGetComponent(out StreamingController destStreamingController))
+            {
+                destStreamingController = dest.gameObject.AddComponent<StreamingController>();
+            }
+            destStreamingController.enabled = streamingController.enabled;
+            destStreamingController.streamingMipmapBias = streamingController.streamingMipmapBias;
+        }
+        else if (dest.TryGetComponent(out StreamingController destStreamingController))
+        {
+            destStreamingController.enabled = false;
         }
         if (clearFlags != ClearFlags.Color && src.clearFlags == CameraClearFlags.Skybox)
         {

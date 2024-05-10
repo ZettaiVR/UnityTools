@@ -21,6 +21,7 @@ public class PortalReflection : MonoBehaviour
     public bool useFrustum = true;
     public bool useOcclusionCulling = true;
     public bool disableOcclusionWhenTransparent = false;
+    public bool copyStreamingController = true;
     public ClearFlags clearFlags = ClearFlags.Default;
     public Color backgroundColor = Color.clear;
     public Transform portalTarget;
@@ -253,7 +254,7 @@ public class PortalReflection : MonoBehaviour
         else
             m_ReflectionTextureLeft = reflectionTexture;
 
-        UpdateCameraModes(currentCam, m_ReflectionCamera, m_CullingCamera, clearFlags, backgroundColor);
+        UpdateCameraModes(currentCam, m_ReflectionCamera, m_CullingCamera, clearFlags, backgroundColor, copyStreamingController);
 
         var targetTexture = useMsaaTexture ? m_ReflectionTextureMSAA : reflectionTexture;
 
