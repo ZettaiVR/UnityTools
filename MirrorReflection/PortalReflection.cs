@@ -69,7 +69,7 @@ public class PortalReflection : MonoBehaviour
         {
             m_Mesh = filter.sharedMesh;
         }
-        GetPropertyIDs();
+        SetGlobalIdIfNeeded();
         if (m_Mesh)
         {
             // find the first material that has mirror shader properties
@@ -128,16 +128,6 @@ public class PortalReflection : MonoBehaviour
         }
     }
 
-    private static void GetPropertyIDs()
-    {
-        if (LeftEyeTextureID < 0 || RightEyeTextureID < 0 || PortalModeID < 0)
-        {
-            LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
-            RightEyeTextureID = Shader.PropertyToID(RightEyeTextureName);
-            PortalModeID = Shader.PropertyToID(PortalModeName);
-        }
-    }
-
     private void OnDestroy()
     {
         if (m_MaterialsInstanced == null || m_MaterialsInstanced.Length == 0)
@@ -161,7 +151,7 @@ public class PortalReflection : MonoBehaviour
             return;
 
 #if UNITY_EDITOR
-        GetPropertyIDs();
+        SetGlobalIdIfNeeded();
         if (materialPropertyBlock == null)
             materialPropertyBlock = new MaterialPropertyBlock();
 #endif
@@ -345,6 +335,7 @@ public class PortalReflection : MonoBehaviour
         {
             m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
         }
+        SetGlobalShaderRect(m_ReflectionCamera.rect);
         m_ReflectionCamera.Render();
 
         if (useMsaaTexture)

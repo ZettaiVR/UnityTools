@@ -18,6 +18,7 @@ public class MirrorReflection : MonoBehaviour
     internal const string LeftEyeTextureName = "_ReflectionTexLeft";
     internal const string RightEyeTextureName = "_ReflectionTexRight";
     internal const string PortalModeName = "_portalMode";
+    internal const string GlobalShaderVectorNameCameraRect = "CameraRectSize";
     private const string ReflectionCameraName = "Reflection camera";
     private const string CullingCameraName = "Culling camera";
     private const string MirrorScaleOffset = "Scale offset";
@@ -77,6 +78,7 @@ public class MirrorReflection : MonoBehaviour
     internal static int LeftEyeTextureID = -1;
     internal static int RightEyeTextureID = -1;
     internal static int PortalModeID = -1;
+    internal static int CameraRectSizeShaderID = -1;
     private static bool s_InsideRendering = false;
     internal static bool copySupported;
     private static Material m_DepthMaterial;
@@ -150,12 +152,7 @@ public class MirrorReflection : MonoBehaviour
         {
             m_Mesh = filter.sharedMesh;
         }
-        if (LeftEyeTextureID < 0 || RightEyeTextureID < 0 || PortalModeID < 0)
-        {
-            LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
-            RightEyeTextureID = Shader.PropertyToID(RightEyeTextureName);
-            PortalModeID = Shader.PropertyToID(PortalModeName);
-        }
+        SetGlobalIdIfNeeded();
         if (m_Mesh)
         {
             // find the first material that has mirror shader properties
@@ -213,6 +210,18 @@ public class MirrorReflection : MonoBehaviour
         {
             m_MaterialsInstanced = m_Renderer.materials;
         }
+    }
+
+    internal static void SetGlobalIdIfNeeded()
+    {
+        if (LeftEyeTextureID == -1)
+            LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
+        if (RightEyeTextureID == -1)
+            RightEyeTextureID = Shader.PropertyToID(RightEyeTextureName);
+        if (PortalModeID == -1)
+            PortalModeID = Shader.PropertyToID(PortalModeName);
+        if (CameraRectSizeShaderID == -1)
+            CameraRectSizeShaderID = Shader.PropertyToID(GlobalShaderVectorNameCameraRect);
     }
 
     private static void CreateCullingTextures()
@@ -409,11 +418,8 @@ public class MirrorReflection : MonoBehaviour
             return;
 
 #if UNITY_EDITOR
-        if (LeftEyeTextureID < 0 || RightEyeTextureID < 0)
-        {
-            LeftEyeTextureID = Shader.PropertyToID(LeftEyeTextureName);
-            RightEyeTextureID = Shader.PropertyToID(RightEyeTextureName);
-        }
+        SetGlobalIdIfNeeded();
+
         if (materialPropertyBlock == null)
             materialPropertyBlock = new MaterialPropertyBlock();
         CreateCullingTextures();
@@ -665,6 +671,7 @@ public class MirrorReflection : MonoBehaviour
         }
         m_ReflectionCamera.useOcclusionCulling = useOcclusion;
         m_ReflectionCamera.worldToCameraMatrix = GetViewMatrix(currentCam, mirrorPos, normal, eye, isStereo);
+        SetGlobalShaderRect(m_ReflectionCamera.rect);
         if (useMasking)
         {
             var pixelWidth = targetTexture.width;
@@ -679,6 +686,12 @@ public class MirrorReflection : MonoBehaviour
 
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, m_ReflectionTextureMSAA, pixelRect, validRect);
+    }
+
+    internal static void SetGlobalShaderRect(Rect rect)
+    {
+        var value = new Vector4(rect.x, rect.y, 1f - rect.width, 1f - rect.height);
+        Shader.SetGlobalVector(CameraRectSizeShaderID, value);
     }
 
     internal static void ResetCullingCamera(Camera m_CullingCamera, Vector3 cullingPos)
