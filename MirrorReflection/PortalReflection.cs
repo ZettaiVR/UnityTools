@@ -262,20 +262,19 @@ public class PortalReflection : MonoBehaviour
     private void RenderPortal(Camera currentCam, Vector3 portalPos, RenderTexture reflectionTexture, bool useOcclusion, bool isStereo, Camera.MonoOrStereoscopicEye eye)
     {
         var viewMatrix = isStereo ? currentCam.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : currentCam.worldToCameraMatrix;
-        var _portalPos = portalPos;
-        var currentPos = transform.position;
-        var targetPos = portalTarget.position;
-        portalPos = Vector3.zero;
-        transform.position -= _portalPos;
-        portalTarget.position -= _portalPos;
+        var targetPos = portalTarget.localPosition;
+        portalTarget.position -= portalPos;
+        scaleOffset.transform.position -= portalPos;
         var viewMatrix0 = isStereo ? m_CullingCamera.GetStereoViewMatrix((Camera.StereoscopicEye)eye) : m_CullingCamera.worldToCameraMatrix;
         var portalSurfaceRot = Quaternion.FromToRotation(portalNormalAvg, Vector3.forward);
-        var portalSurfaceLtwm = Matrix4x4.TRS(portalPos, portalSurfaceRot, Vector3.one);
+        var portalSurfaceLtwm = Matrix4x4.TRS(Vector3.zero, portalSurfaceRot, Vector3.one);
         var portalLtwm = portalTarget.localToWorldMatrix * rotatePortalTrs;
         var portalUp = portalLtwm.MultiplyVector(Vector3.up);
         var portalNewPos = (Vector3)portalLtwm.GetColumn(3);
         var portalCameraToWorldMatrix = portalLtwm * portalSurfaceLtwm.inverse * viewMatrix0.inverse;
-        var portalLocalToWorld = portalLtwm * Matrix4x4.Scale(m_Renderer.localToWorldMatrix.lossyScale) * meshTrs.inverse;
+        var portalLocalToWorld = portalLtwm * Matrix4x4.Scale(m_Renderer.localToWorldMatrix.lossyScale);
+        portalLocalToWorld = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one).inverse * portalLocalToWorld;
+        portalLocalToWorld *= meshTrs.inverse;
         var portalCorners = meshCorners.MultiplyPoint3x4(portalLocalToWorld);
         var rotationDiff = portalLtwm.rotation * Quaternion.Inverse(portalSurfaceRot);
         var portalCamPos = portalCameraToWorldMatrix.GetColumn(3);
@@ -286,8 +285,8 @@ public class PortalReflection : MonoBehaviour
 
         if (!TryGetRectPixel(m_ReflectionCamera, portalCorners, boundsLocalSpace, portalLocalToWorld, out var portalFrustum, out float portalNearDistance, out Rect portalRect, out var portalSurfacePlane))
         {
-            transform.position = currentPos;
-            portalTarget.position = targetPos;
+            scaleOffset.localPosition = Vector3.zero;
+            portalTarget.localPosition = targetPos;
             return;
         }
 
@@ -314,9 +313,8 @@ public class PortalReflection : MonoBehaviour
             useOcclusion = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, portalCorners, portalSurfacePlane, portalLocalToWorld.MultiplyPoint3x4(meshMid), farclip);
         }
 
-        portalPos = _portalPos;
-        transform.position = currentPos;
-        portalTarget.position = targetPos;
+        scaleOffset.localPosition = Vector3.zero;
+        portalTarget.localPosition = targetPos;
         portalSurfaceLtwm = Matrix4x4.TRS(portalPos, portalSurfaceRot, Vector3.one);
         portalLtwm = portalTarget.localToWorldMatrix * rotatePortalTrs;
         portalUp = portalLtwm.MultiplyVector(Vector3.up);
@@ -338,6 +336,7 @@ public class PortalReflection : MonoBehaviour
         SetGlobalShaderRect(m_ReflectionCamera.rect);
         m_ReflectionCamera.Render();
 
+        ResetGlobalShaderRect();
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, m_ReflectionTextureMSAA, portalRect, _validRect);
     }

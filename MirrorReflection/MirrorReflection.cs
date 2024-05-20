@@ -612,13 +612,11 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.cullingMask = MirrorLayerExcludeMask & m_ReflectLayers.value; // mirrors never render their own layer
 
         // set mirror to zero pos, floating point precision can make the rect and frustum calculations way too unstable
-        var _mirrorPos = mirrorPos;
-        mirrorPos = Vector3.zero;
-        var currentPos = transform.position;
-        transform.position -= _mirrorPos;
+
+        scaleOffset.transform.position -= mirrorPos;
 
         // camera mirrored to other side of mirror
-        var worldToCameraMatrix = GetViewMatrix(m_CullingCamera, mirrorPos, normal, eye, isStereo);
+        var worldToCameraMatrix = GetViewMatrix(m_CullingCamera, Vector3.zero, normal, eye, isStereo);
         m_CullingCamera.transform.localRotation = cullingRotation;
         m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
         var wtinv = worldToCameraMatrix.inverse;
@@ -630,11 +628,12 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
 
         var ltwm = m_Renderer.localToWorldMatrix;
+        ltwm = Matrix4x4.TRS(mirrorPos, Quaternion.identity, Vector3.one).inverse * ltwm;
         ltwm *= meshTrs.inverse;
         var worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
         if (!TryGetRectPixel(m_ReflectionCamera, worldCorners, boundsLocalSpace, ltwm, out var frustum, out float nearDistance, out Rect pixelRect, out var mirrorPlane))
         {
-            transform.position = currentPos;
+            scaleOffset.transform.localPosition = Vector3.zero;
             return;
         }
 
@@ -655,7 +654,7 @@ public class MirrorReflection : MonoBehaviour
         }
         // Setup oblique projection matrix so that near plane is our reflection plane.
         // This way we clip everything below/above it for free.
-        var clipPlane = CameraSpacePlane(worldToCameraMatrix, mirrorPos, normal);
+        var clipPlane = CameraSpacePlane(worldToCameraMatrix, Vector3.zero, normal);
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
         if (useOcclusion)
         {
@@ -663,8 +662,7 @@ public class MirrorReflection : MonoBehaviour
             var farclip = m_CullingCamera.farClipPlane = currentCam.farClipPlane;
             useOcclusion = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, worldCorners, mirrorPlane, ltwm.MultiplyPoint3x4(meshMid), farclip);
         }
-        transform.position = currentPos;
-        mirrorPos = _mirrorPos;
+        scaleOffset.transform.localPosition = Vector3.zero;
         if (useOcclusion)
         {
             m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
@@ -683,7 +681,7 @@ public class MirrorReflection : MonoBehaviour
             m_ReflectionCamera.Render();
         }
         didRender = true;
-
+        ResetGlobalShaderRect();
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, m_ReflectionTextureMSAA, pixelRect, validRect);
     }
@@ -692,6 +690,10 @@ public class MirrorReflection : MonoBehaviour
     {
         var value = new Vector4(rect.x, rect.y, 1f - rect.width, 1f - rect.height);
         Shader.SetGlobalVector(CameraRectSizeShaderID, value);
+    }
+    internal static void ResetGlobalShaderRect() 
+    {
+        Shader.SetGlobalVector(CameraRectSizeShaderID, Vector4.zero);
     }
 
     internal static void ResetCullingCamera(Camera m_CullingCamera, Vector3 cullingPos)
