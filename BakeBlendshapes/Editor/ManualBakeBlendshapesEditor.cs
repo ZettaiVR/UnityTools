@@ -10,6 +10,7 @@ public class ManualBakeBlendshapesEditor : Editor
     private GameObject _targetGameObject;
     private ManualBakeBlendshapes script;
     private GUIStyle textStyle;
+    private readonly string[] EyeLids = new string[3];
 
     private void Init()
     {
@@ -47,7 +48,7 @@ public class ManualBakeBlendshapesEditor : Editor
             FindVisemeBlink();
         }
         GUILayout.Space(20);
-        if (GUILayout.Button("Find controllers and bledshapes from avatar"))
+        if (GUILayout.Button("Find controllers and blendshapes from avatar"))
         {
             FindControllersFromAvatar();
         }
@@ -58,7 +59,8 @@ public class ManualBakeBlendshapesEditor : Editor
         {
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
-            BakeBlendshapes.Process(animator, script.keepBlendshapes, script.controllers, script.keepMmd, script.bakeNonMoving, true, false);
+            BakeBlendshapes.Process(animator, script.keepBlendshapes, script.controllers, keepMmd: script.keepMmd, bakeNonMoving: script.bakeNonMoving, makeCopy: true, addToClenup: false);
+            BakeBlendshapesBuildIntegration.ReassignEyelids(animator.gameObject, EyeLids);
             sw.Stop();
             Debug.Log($"BakeUnchangingBlendshapes took {sw.Elapsed.TotalMilliseconds} ms.");
         }
@@ -70,10 +72,10 @@ public class ManualBakeBlendshapesEditor : Editor
             return;
         var keepBlendshapes = script.keepBlendshapes;
         var controllers = script.controllers;
-        BakeBlendshapesBuildIntergration.FindControllersVRCSDK2(_targetGameObject, keepBlendshapes, controllers);
-        BakeBlendshapesBuildIntergration.FindControllersVRCSDK3(_targetGameObject, keepBlendshapes, controllers);
-        BakeBlendshapesBuildIntergration.FindControllersCVRAvatar(_targetGameObject, keepBlendshapes, controllers);
-        BakeBlendshapesBuildIntergration.FindControllersCVRProp(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntegration.FindControllersVRCSDK2(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntegration.FindControllersVRCSDK3(_targetGameObject, keepBlendshapes, EyeLids, controllers);
+        BakeBlendshapesBuildIntegration.FindControllersCVRAvatar(_targetGameObject, keepBlendshapes, controllers);
+        BakeBlendshapesBuildIntegration.FindControllersCVRProp(_targetGameObject, keepBlendshapes, controllers);
         var tempBlendshapes = new HashSet<string>(keepBlendshapes);
         keepBlendshapes.Clear();
         keepBlendshapes.AddRange(tempBlendshapes);

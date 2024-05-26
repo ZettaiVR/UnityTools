@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System;
 using UnityEditor.Build;
 
-public class BakeBlendshapesBuildIntergration
+public class BakeBlendshapesBuildIntegration
 {
     private const string Path = "Tools/Zettai/";
     private const string MMDText = "Keep MMD blendshapes";
@@ -101,7 +101,29 @@ public class BakeBlendshapesBuildIntergration
         controllers.Add(animator.runtimeAnimatorController);
 #endif
     }
-    internal static void FindControllersVRCSDK3(GameObject avatarGameObject, List<string> keepBlendshapes, List<RuntimeAnimatorController> controllers)
+    internal static void ReassignEyelids(GameObject avatarGameObject, string[] eyeLids) 
+    {
+#if VRC_SDK_VRCSDK3
+        var avatar3 = avatarGameObject.GetComponent<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>();
+        if (!avatar3)
+            return;
+        var eyelids = avatar3.customEyeLookSettings.eyelidsBlendshapes;
+        var eyelidMesh = avatar3.customEyeLookSettings.eyelidsSkinnedMesh;
+        if (eyelids != null && eyelids.Length > 0 && eyelidMesh && eyelidMesh.sharedMesh)
+        {
+            var mesh = eyelidMesh.sharedMesh;
+            for (int i = 0; i < eyelids.Length; i++)
+            {
+                if (eyeLids.Length > i && !string.IsNullOrEmpty(eyeLids[i]))
+                {
+                    eyelids[i] = mesh.GetBlendShapeIndex(eyeLids[i]);
+                }
+            }
+        }
+#endif
+    }
+
+    internal static void FindControllersVRCSDK3(GameObject avatarGameObject, List<string> keepBlendshapes, string[] eyeLids, List<RuntimeAnimatorController> controllers)
     {
 #if VRC_SDK_VRCSDK3
         var avatar3 = avatarGameObject.GetComponent<VRC.SDK3.Avatars.Components.VRCAvatarDescriptor>();
@@ -129,14 +151,17 @@ public class BakeBlendshapesBuildIntergration
                 }
             }
         }
+        eyeLids[0] = eyeLids[1] = eyeLids[2] = string.Empty;
         var eyelids = avatar3.customEyeLookSettings.eyelidsBlendshapes;
         var eyelidMesh = avatar3.customEyeLookSettings.eyelidsSkinnedMesh;
         if (eyelids != null && eyelids.Length > 0 && eyelidMesh && eyelidMesh.sharedMesh)
         {
+            var mesh = eyelidMesh.sharedMesh;
             var path = AnimationUtility.CalculateTransformPath(eyelidMesh.transform, avatarGameObject.transform);
             for (int i = 0; i < eyelids.Length; i++)
             {
-                var name = eyelidMesh.sharedMesh.GetBlendShapeName(eyelids[i]);
+                var name = mesh.GetBlendShapeName(eyelids[i]);
+                eyeLids[i] = name;
                 if (!string.IsNullOrEmpty(name))
                     keepBlendshapes.Add(path + "/" + name);
             }
@@ -203,11 +228,13 @@ public class BakeBlendshapesBuildIntergration
                 if (!animator)
                     return true;
                 var keepBlendshapes = new List<string>();
+                string[] EyeLids = new string[3];
                 var controllers = new List<RuntimeAnimatorController>();
                 FindControllersVRCSDK2(avatarGameObject, keepBlendshapes, controllers);
-                FindControllersVRCSDK3(avatarGameObject, keepBlendshapes, controllers); 
+                FindControllersVRCSDK3(avatarGameObject, keepBlendshapes, EyeLids, controllers); 
                 keepBlendshapes.RemoveAll(a => string.IsNullOrEmpty(a));
-                BakeBlendshapes.Process(animator, keepBlendshapes, controllers, true, true, false, true);
+                BakeBlendshapes.Process(animator, keepBlendshapes, controllers, keepMmd: mmd, bakeNonMoving: bake, makeCopy: false, addToClenup: true);
+                ReassignEyelids(avatarGameObject, EyeLids);
             }
             catch (Exception ex) { Debug.LogException(ex); }
             return true;
@@ -247,7 +274,7 @@ public class BakeBlendshapesBuildIntergration
                 FindControllersCVRAvatar(avatarGameObject, keepBlendshapes, controllers);
                 FindControllersCVRProp(avatarGameObject, keepBlendshapes, controllers);
                 keepBlendshapes.RemoveAll(a => string.IsNullOrEmpty(a));
-                BakeBlendshapes.Process(animator, keepBlendshapes, controllers, true, true, false, true);
+                BakeBlendshapes.Process(animator, keepBlendshapes, controllers, keepMmd: mmd, bakeNonMoving: bake, makeCopy: false, addToClenup: true);
             }
             catch (Exception ex) { Debug.LogException(ex); }
         }
