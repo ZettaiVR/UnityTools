@@ -648,12 +648,18 @@ public class MirrorAvatar : MonoBehaviour
     {
         // materials                        
         original.GetSharedMaterials(originalSmrSharedMaterials);
+        bool changed = false;
         for (int i = 0; i < originalSmrSharedMaterials.Count; i++)
         {
             if (originalSmrSharedMaterials[i] != cloneMaterials[i])
             {
-                clone.sharedMaterials[i] = cloneMaterials[i] = originalSmrSharedMaterials[i];
+                cloneMaterials[i] = originalSmrSharedMaterials[i];
+                changed = true;
             }
+        }
+        if (changed)
+        {
+            clone.sharedMaterials = cloneMaterials;
         }
         // material properties
         original.GetPropertyBlock(properties);
