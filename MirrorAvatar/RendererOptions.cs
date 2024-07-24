@@ -41,6 +41,10 @@ public class RendererOptions : MonoBehaviour
             }
         }
     }
+    private void OnEnable()
+    {
+        OnDidApplyAnimationProperties();
+    }
     void OnDidApplyAnimationProperties()
     {
         if (firstPersonVisibility == previousFirstPersonVisibility)
