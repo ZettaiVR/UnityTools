@@ -60,38 +60,38 @@ public class BakeBlendshapesBuildIntegration
         }
         controllers.Add(avatar.overrides);
         if (avatar.bodyMesh)
-            return;
-
-        var path = AnimationUtility.CalculateTransformPath(avatar.bodyMesh.transform, avatarGameObject.transform);
-        var visemes = avatar.visemeBlendshapes;
-        if (avatar.useVisemeLipsync && visemes != null)
         {
-            if (avatar.visemeMode == ABI.CCK.Components.CVRAvatar.CVRAvatarVisemeMode.Visemes)
+            var path = AnimationUtility.CalculateTransformPath(avatar.bodyMesh.transform, avatarGameObject.transform);
+            var visemes = avatar.visemeBlendshapes;
+            if (avatar.useVisemeLipsync && visemes != null)
             {
-                for (int i = 0; i < visemes.Length; i++)
+                if (avatar.visemeMode == ABI.CCK.Components.CVRAvatar.CVRAvatarVisemeMode.Visemes)
                 {
-                    if (!string.IsNullOrEmpty(visemes[i]))
-                        keepBlendshapes.Add(path + "/" + visemes[i]);
+                    for (int i = 0; i < visemes.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(visemes[i]))
+                            keepBlendshapes.Add(path + "/" + visemes[i]);
+                    }
+                }
+                else if (avatar.visemeMode == ABI.CCK.Components.CVRAvatar.CVRAvatarVisemeMode.SingleBlendshape)
+                {
+                    if (!string.IsNullOrEmpty(visemes[0]))
+                        keepBlendshapes.Add(path + "/" + visemes[0]);
                 }
             }
-            else if (avatar.visemeMode == ABI.CCK.Components.CVRAvatar.CVRAvatarVisemeMode.SingleBlendshape)
+            if (avatar.blinkBlendshape != null)
             {
-                if (!string.IsNullOrEmpty(visemes[0]))
-                    keepBlendshapes.Add(path + "/" + visemes[0]);
-            }
-        }
-        if (avatar.blinkBlendshape != null)
-        {
-            for (int i = 0; i < avatar.blinkBlendshape.Length; i++)
-            {
-                if (!string.IsNullOrEmpty(avatar.blinkBlendshape[i]))
-                    keepBlendshapes.Add(path + "/" + avatar.blinkBlendshape[i]);
+                for (int i = 0; i < avatar.blinkBlendshape.Length; i++)
+                {
+                    if (!string.IsNullOrEmpty(avatar.blinkBlendshape[i]))
+                        keepBlendshapes.Add(path + "/" + avatar.blinkBlendshape[i]);
+                }
             }
         }
         var faceTracking = avatarGameObject.GetComponentInChildren<ABI.CCK.Components.CVRFaceTracking>();
         if (faceTracking && faceTracking.FaceBlendShapes != null && faceTracking.FaceBlendShapes.Length > 0 && faceTracking.FaceMesh)
         {
-            path = AnimationUtility.CalculateTransformPath(faceTracking.FaceMesh.transform, avatarGameObject.transform);
+            var path = AnimationUtility.CalculateTransformPath(faceTracking.FaceMesh.transform, avatarGameObject.transform);
             for (int i = 0; i < faceTracking.FaceBlendShapes.Length; i++)
             {
                 if (!string.IsNullOrEmpty(faceTracking.FaceBlendShapes[i]))
