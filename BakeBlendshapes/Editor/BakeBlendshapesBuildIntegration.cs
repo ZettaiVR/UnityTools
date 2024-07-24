@@ -1,8 +1,8 @@
-﻿using UnityEngine;
-using UnityEditor;
+﻿using System;
 using System.Collections.Generic;
-using System;
+using UnityEditor;
 using UnityEditor.Build;
+using UnityEngine;
 
 public class BakeBlendshapesBuildIntegration
 {
@@ -86,6 +86,16 @@ public class BakeBlendshapesBuildIntegration
             {
                 if (!string.IsNullOrEmpty(avatar.blinkBlendshape[i]))
                     keepBlendshapes.Add(path + "/" + avatar.blinkBlendshape[i]);
+            }
+        }
+        var faceTracking = avatarGameObject.GetComponentInChildren<ABI.CCK.Components.CVRFaceTracking>();
+        if (faceTracking && faceTracking.FaceBlendShapes != null && faceTracking.FaceBlendShapes.Length > 0 && faceTracking.FaceMesh)
+        {
+            path = AnimationUtility.CalculateTransformPath(faceTracking.FaceMesh.transform, avatarGameObject.transform);
+            for (int i = 0; i < faceTracking.FaceBlendShapes.Length; i++)
+            {
+                if (!string.IsNullOrEmpty(faceTracking.FaceBlendShapes[i]))
+                    keepBlendshapes.Add(path + "/" + faceTracking.FaceBlendShapes[i]);
             }
         }
 #endif
