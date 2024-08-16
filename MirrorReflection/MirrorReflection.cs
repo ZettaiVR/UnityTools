@@ -24,7 +24,6 @@ public class MirrorReflection : MonoBehaviour
     private const string MirrorScaleOffset = "Scale offset";
     private const int MirrorLayer = 4;
     private const int MirrorLayerExcludeMask = ~(1 << MirrorLayer);
-
     public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x4;
     public int resolutionLimit = 4096; 
     [Range(0.01f, 1f)]
@@ -35,11 +34,15 @@ public class MirrorReflection : MonoBehaviour
     public bool useMasking = false;
     public bool useMirrorMeshForMasking = false;
     public bool useFrustum = true;
+    public bool useAverageNormals = true;
     public bool useOcclusionCulling = true;
     public bool disableOcclusionWhenTransparent = false;
     public bool copyStreamingController = true;
     public ClearFlags clearFlags = ClearFlags.Default;
     public Color backgroundColor = Color.clear;
+    public CullDistance cullDistance = CullDistance.Default;
+    public float maxCullDistance = 1000f;
+    public float[] maxCullDistances = new float[32];
 
 #if UNITY_EDITOR
     public bool didRender;
@@ -111,6 +114,13 @@ public class MirrorReflection : MonoBehaviour
         Default = 0,
         Skybox = 1,
         Color = 2,
+    }
+    public enum CullDistance 
+    {
+        Default,
+        CameraFarClip,
+        DistanceFromMirror,
+        PerLayerDistancesFromMirror,
     }
 
 #if UNITY_EDITOR
@@ -315,12 +325,13 @@ public class MirrorReflection : MonoBehaviour
                 mirrorVertices.Add(vertices[item]);
             }
             vertices.Clear();
-            mesh.GetNormals(vertices);
-            if (vertices.Count > 0)
-                mirrorNormal = vertices[0];
+            var normals = vertices;
+            mesh.GetNormals(normals);
+            if (normals.Count > 0)
+                mirrorNormal = normals[0];
             foreach (var item in ints)
             {
-                allNormals += vertices[item];
+                allNormals += normals[item];
             }
             ints.Clear();
             vertices.Clear();
@@ -454,7 +465,7 @@ public class MirrorReflection : MonoBehaviour
 
         m_LocalToWorldMatrix = transform.localToWorldMatrix;
         Vector3 mirrorPos = m_LocalToWorldMatrix.MultiplyPoint3x4(mirrorPlaneOffset);  // transform.position
-        Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(mirrorNormalAvg).normalized;    // transform.TransformDirection
+        Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
      
         if (m_DisablePixelLights)
             QualitySettings.pixelLightCount = 0;
@@ -591,7 +602,8 @@ public class MirrorReflection : MonoBehaviour
         SetupMsaaTexture(ref m_ReflectionTextureMSAA, useMsaaTexture, widthHeightMsaa, currentCam.allowHDR);
 
         var reflectionTexture = isRightEye ? m_ReflectionTextureRight : m_ReflectionTextureLeft;
-        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, mirrorNormalAvg, useMsaaTexture);
+        var _mirrorNormal = useAverageNormals ? mirrorNormalAvg : mirrorNormal;
+        CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, _mirrorNormal, useMsaaTexture);
         var cullingRotation = m_CullingCamera.transform.localRotation;
 
         if (isRightEye)
@@ -610,7 +622,7 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
         m_ReflectionCamera.cullingMask = MirrorLayerExcludeMask & m_ReflectLayers.value; // mirrors never render their own layer
-
+       
         // set mirror to zero pos, floating point precision can make the rect and frustum calculations way too unstable
 
         scaleOffset.transform.position -= mirrorPos;
@@ -648,9 +660,32 @@ public class MirrorReflection : MonoBehaviour
         {
             m_ReflectionCamera.pixelRect = pixelRect;
             m_ReflectionCamera.projectionMatrix = frustum;
-            m_ReflectionCamera.nearClipPlane = nearDistance;
-
             willUseFrustum = true;
+        }
+        if (cullDistance != CullDistance.Default)
+        {
+            var layerCullDistances = m_ReflectionCamera.layerCullDistances;
+            var cameraMirrorDistance = Vector3.Distance(reflectedPos, mirrorPos);
+            switch (cullDistance)
+            {
+                case CullDistance.CameraFarClip:
+                    Array.Fill(layerCullDistances, m_ReflectionCamera.farClipPlane);
+                    break;
+                case CullDistance.DistanceFromMirror:
+                    Array.Fill(layerCullDistances, maxCullDistance + cameraMirrorDistance);
+                    break;
+                case CullDistance.PerLayerDistancesFromMirror:
+                    if (maxCullDistances != null && maxCullDistances.Length > 0)
+                    {
+                        var length = Math.Min(maxCullDistances.Length, layerCullDistances.Length);
+                        for (int i = 0; i < length; i++)
+                        {
+                            layerCullDistances[i] = maxCullDistances[i] + cameraMirrorDistance;
+                        }
+                    }
+                    break;
+            }
+            m_ReflectionCamera.layerCullDistances = layerCullDistances;
         }
         // Setup oblique projection matrix so that near plane is our reflection plane.
         // This way we clip everything below/above it for free.
