@@ -26,6 +26,9 @@ public class PortalReflection : MonoBehaviour
     public ClearFlags clearFlags = ClearFlags.Default;
     public Color backgroundColor = Color.clear;
     public Transform portalTarget;
+    public CullDistance cullDistance = CullDistance.Default;
+    public float maxCullDistance = 1000f;
+    public float[] maxCullDistances = new float[32];
 
     private bool hasCorners;
     private bool useMsaaTexture;
@@ -325,7 +328,7 @@ public class PortalReflection : MonoBehaviour
         portalCamPos = portalCameraToWorldMatrix.GetColumn(3);
         portalCamRot = rotationDiff * currentCam.transform.rotation;
         m_ReflectionCamera.transform.SetPositionAndRotation(portalCamPos, portalCamRot);
-
+        SetCullDistance(m_ReflectionCamera, cullDistance, maxCullDistance, maxCullDistances, portalCamPos);
 
         var portalClipPlane = CameraSpacePlane(m_ReflectionCamera.worldToCameraMatrix, portalNewPos, -portalUp);
         m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(portalClipPlane);

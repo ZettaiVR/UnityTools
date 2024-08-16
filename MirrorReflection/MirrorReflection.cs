@@ -623,7 +623,7 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.stereoTargetEye = StereoTargetEyeMask.None;
         m_ReflectionCamera.targetTexture = targetTexture;
         m_ReflectionCamera.cullingMask = MirrorLayerExcludeMask & m_ReflectLayers.value; // mirrors never render their own layer
-       
+
         // set mirror to zero pos, floating point precision can make the rect and frustum calculations way too unstable
 
         scaleOffset.transform.position -= mirrorPos;
@@ -663,32 +663,7 @@ public class MirrorReflection : MonoBehaviour
             m_ReflectionCamera.projectionMatrix = frustum;
             willUseFrustum = true;
         }
-        if (cullDistance != CullDistance.Default)
-        {
-            var layerCullDistances = m_ReflectionCamera.layerCullDistances;
-            switch (cullDistance)
-            {
-                case CullDistance.CameraFarClip:
-                    Array.Fill(layerCullDistances, m_ReflectionCamera.farClipPlane);
-                    break;
-                case CullDistance.DistanceFromMirror:
-                    Array.Fill(layerCullDistances, maxCullDistance + reflectedPos.magnitude + 1f);
-                    break;
-                case CullDistance.PerLayerDistancesFromMirror:
-                    if (maxCullDistances != null && maxCullDistances.Length > 0)
-                    {
-                        var length = Math.Min(maxCullDistances.Length, layerCullDistances.Length);
-                        var reflectedPosMagnitude = reflectedPos.magnitude + 1f;
-                        for (int i = 0; i < length; i++)
-                        {
-                            layerCullDistances[i] = maxCullDistances[i] + reflectedPosMagnitude;
-                        }
-                    }
-                    break;
-            }
-            m_ReflectionCamera.layerCullSpherical = true;
-            m_ReflectionCamera.layerCullDistances = layerCullDistances;
-        }
+        SetCullDistance(m_ReflectionCamera, cullDistance, maxCullDistance, maxCullDistances, reflectedPos);
         // Setup oblique projection matrix so that near plane is our reflection plane.
         // This way we clip everything below/above it for free.
         var clipPlane = CameraSpacePlane(worldToCameraMatrix, Vector3.zero, normal);
@@ -721,6 +696,38 @@ public class MirrorReflection : MonoBehaviour
         ResetGlobalShaderRect();
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, m_ReflectionTextureMSAA, pixelRect, validRect);
+    }
+
+    internal static void SetCullDistance(Camera m_ReflectionCamera, CullDistance cullDistance, float maxCullDistance, float[] maxCullDistances, Vector3 reflectedPos)
+    {
+        if (cullDistance == CullDistance.Default)
+        {
+            return;
+        }
+        var layerCullDistances = m_ReflectionCamera.layerCullDistances;
+        switch (cullDistance)
+        {
+            case CullDistance.CameraFarClip:
+                Array.Fill(layerCullDistances, m_ReflectionCamera.farClipPlane);
+                break;
+            case CullDistance.DistanceFromMirror:
+                Array.Fill(layerCullDistances, maxCullDistance + reflectedPos.magnitude + 1f);
+                break;
+            case CullDistance.PerLayerDistancesFromMirror:
+                if (maxCullDistances == null || maxCullDistances.Length == 0)
+                {
+                    return;
+                }
+                var length = Math.Min(maxCullDistances.Length, layerCullDistances.Length);
+                var reflectedPosMagnitude = reflectedPos.magnitude + 1f;
+                for (int i = 0; i < length; i++)
+                {
+                    layerCullDistances[i] = maxCullDistances[i] + reflectedPosMagnitude;
+                }
+                break;
+        }
+        m_ReflectionCamera.layerCullSpherical = true;
+        m_ReflectionCamera.layerCullDistances = layerCullDistances;
     }
 
     internal static void SetGlobalShaderRect(Rect rect)
