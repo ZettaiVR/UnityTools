@@ -187,7 +187,7 @@ public class MirrorReflection : MonoBehaviour
                 {
                     mesh = ReadItAnyway(mesh);
                 }
-                ReadMesh(mesh, index);
+                (mirrorNormal, mirrorNormalAvg) = ReadMesh(mesh, index);
                 (meshTrs, meshMid, meshCorners, boundsLocalSpace, hasCorners) = FindMeshCorners(mirrorNormalAvg);
             }
             catch (Exception) { }
