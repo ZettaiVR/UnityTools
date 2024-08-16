@@ -36,6 +36,7 @@ public class MirrorReflection : MonoBehaviour
     public bool useFrustum = true;
     public bool useAverageNormals = true;
     public bool useOcclusionCulling = true;
+    public bool keepNearClip = true;
     public bool disableOcclusionWhenTransparent = false;
     public bool copyStreamingController = true;
     public ClearFlags clearFlags = ClearFlags.Default;
@@ -643,7 +644,7 @@ public class MirrorReflection : MonoBehaviour
         ltwm = Matrix4x4.TRS(mirrorPos, Quaternion.identity, Vector3.one).inverse * ltwm;
         ltwm *= meshTrs.inverse;
         var worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
-        if (!TryGetRectPixel(m_ReflectionCamera, worldCorners, boundsLocalSpace, ltwm, out var frustum, out float nearDistance, out Rect pixelRect, out var mirrorPlane))
+        if (!TryGetRectPixel(m_ReflectionCamera, worldCorners, boundsLocalSpace, ltwm, keepNearClip, out var frustum, out float nearDistance, out Rect pixelRect, out var mirrorPlane))
         {
             scaleOffset.transform.localPosition = Vector3.zero;
             return;
@@ -665,26 +666,27 @@ public class MirrorReflection : MonoBehaviour
         if (cullDistance != CullDistance.Default)
         {
             var layerCullDistances = m_ReflectionCamera.layerCullDistances;
-            var cameraMirrorDistance = Vector3.Distance(reflectedPos, mirrorPos);
             switch (cullDistance)
             {
                 case CullDistance.CameraFarClip:
                     Array.Fill(layerCullDistances, m_ReflectionCamera.farClipPlane);
                     break;
                 case CullDistance.DistanceFromMirror:
-                    Array.Fill(layerCullDistances, maxCullDistance + cameraMirrorDistance);
+                    Array.Fill(layerCullDistances, maxCullDistance + reflectedPos.magnitude + 1f);
                     break;
                 case CullDistance.PerLayerDistancesFromMirror:
                     if (maxCullDistances != null && maxCullDistances.Length > 0)
                     {
                         var length = Math.Min(maxCullDistances.Length, layerCullDistances.Length);
+                        var reflectedPosMagnitude = reflectedPos.magnitude + 1f;
                         for (int i = 0; i < length; i++)
                         {
-                            layerCullDistances[i] = maxCullDistances[i] + cameraMirrorDistance;
+                            layerCullDistances[i] = maxCullDistances[i] + reflectedPosMagnitude;
                         }
                     }
                     break;
             }
+            m_ReflectionCamera.layerCullSpherical = true;
             m_ReflectionCamera.layerCullDistances = layerCullDistances;
         }
         // Setup oblique projection matrix so that near plane is our reflection plane.
@@ -1013,7 +1015,7 @@ public class MirrorReflection : MonoBehaviour
     private static Vector4 column3 = new Vector4(0, 0, 0, 1);
 
     internal static bool TryGetRectPixel(Camera camera, Vector3x4 worldCorners, Bounds boundsLocalSpace, Matrix4x4 ltwm,
-        out Matrix4x4 frustum, out float nearDistance, out Rect pixelRect, out Plane mirrorPlane)
+        bool keepNearClip, out Matrix4x4 frustum, out float nearDistance, out Rect pixelRect, out Plane mirrorPlane)
     {
         Span<Vector3> allCorners = stackalloc Vector3[24];
         frustum = Matrix4x4.identity;
@@ -1065,9 +1067,10 @@ public class MirrorReflection : MonoBehaviour
         height = top - bottom;
 
         var frustumRect = new Rect(left, bottom, width, height);
-        camera.CalculateFrustumCorners(frustumRect, nearDistance, Camera.MonoOrStereoscopicEye.Mono, outCorners);
+        var nearClip = keepNearClip ? camera.nearClipPlane : nearDistance;
+        camera.CalculateFrustumCorners(frustumRect, nearClip, Camera.MonoOrStereoscopicEye.Mono, outCorners);
         FindExtremes(outCorners, out extremes);
-        frustum = Matrix4x4.Frustum(extremes.x, extremes.y, extremes.z, extremes.w, nearDistance, camera.farClipPlane);
+        frustum = Matrix4x4.Frustum(extremes.x, extremes.y, extremes.z, extremes.w, nearClip, camera.farClipPlane);
         return true;
     }
 

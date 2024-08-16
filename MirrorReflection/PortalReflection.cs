@@ -20,6 +20,7 @@ public class PortalReflection : MonoBehaviour
     public bool m_DisablePixelLights = true;
     public bool useFrustum = true;
     public bool useOcclusionCulling = true;
+    public bool keepNearClip = true;
     public bool disableOcclusionWhenTransparent = false;
     public bool copyStreamingController = true;
     public ClearFlags clearFlags = ClearFlags.Default;
@@ -283,7 +284,7 @@ public class PortalReflection : MonoBehaviour
         m_ReflectionCamera.ResetWorldToCameraMatrix();
         m_ReflectionCamera.projectionMatrix = isStereo ? currentCam.GetStereoProjectionMatrix((Camera.StereoscopicEye)eye) : currentCam.projectionMatrix;
 
-        if (!TryGetRectPixel(m_ReflectionCamera, portalCorners, boundsLocalSpace, portalLocalToWorld, out var portalFrustum, out float portalNearDistance, out Rect portalRect, out var portalSurfacePlane))
+        if (!TryGetRectPixel(m_ReflectionCamera, portalCorners, boundsLocalSpace, portalLocalToWorld, keepNearClip, out var portalFrustum, out float portalNearDistance, out Rect portalRect, out var portalSurfacePlane))
         {
             scaleOffset.localPosition = Vector3.zero;
             portalTarget.localPosition = targetPos;
