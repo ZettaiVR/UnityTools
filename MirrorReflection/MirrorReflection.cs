@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine.Rendering;
 using UnityEngine.XR;
+
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -26,7 +27,7 @@ public class MirrorReflection : MonoBehaviour
     private const int MirrorLayerExcludeMask = ~(1 << MirrorLayer);
     public AntiAliasing MockMSAALevel = AntiAliasing.MSAA_x4;
     public int resolutionLimit = 4096; 
-    [Range(0.01f, 1f)]
+    [Range(0.01f, 1.5f)]
     public float MaxTextureSizePercent = 1.0f;  // this should be a setting in config
     public LayerMask m_ReflectLayers = -1;
     public bool useVRAMOptimization = true;
@@ -467,7 +468,15 @@ public class MirrorReflection : MonoBehaviour
         m_LocalToWorldMatrix = transform.localToWorldMatrix;
         Vector3 mirrorPos = m_LocalToWorldMatrix.MultiplyPoint3x4(mirrorPlaneOffset);  // transform.position
         Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
-     
+
+        if (IsSheared(m_LocalToWorldMatrix, 0.01f))
+        {
+            var ltwm = m_Renderer.localToWorldMatrix * meshTrs;
+            var _worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
+            var _plane = new Plane(_worldCorners[0], _worldCorners[1], _worldCorners[2]);
+            normal = _plane.normal;
+        }
+        
         if (m_DisablePixelLights)
             QualitySettings.pixelLightCount = 0;
         try
@@ -513,6 +522,17 @@ public class MirrorReflection : MonoBehaviour
         }
     }
 
+    private bool IsSheared(Matrix4x4 ltwm, float limit)
+    {
+        var fw = ltwm.MultiplyVector(Vector3.forward);
+        var up = ltwm.MultiplyVector(Vector3.up);
+        var right = ltwm.MultiplyVector(Vector3.right);
+        var a = Math.Abs(Vector3.Dot(fw, right));
+        var b = Math.Abs(Vector3.Dot(fw, up));
+        var c = Math.Abs(Vector3.Dot(up, right));
+        return a > limit || b > limit || c > limit;
+    }
+
     /// <summary>
     /// Get actual MSAA level from render texture (if the current camera renders to one) or QualitySettings
     /// </summary>
@@ -538,7 +558,7 @@ public class MirrorReflection : MonoBehaviour
 
     internal static Vector2Int UpdateRenderResolution(int width, int height, float MaxTextureSizePercent, int resolutionLimit)
     {
-        var max = Mathf.Clamp(MaxTextureSizePercent, 0.01f, 1f);
+        var max = Mathf.Clamp(MaxTextureSizePercent, 0.01f, 1.5f);
         var size = width * height;
         var limit = resolutionLimit * resolutionLimit;
 
@@ -547,7 +567,7 @@ public class MirrorReflection : MonoBehaviour
             var _maxRes = Math.Sqrt(limit / (float)size);
             max *= (float)_maxRes;
         }
-        max = Mathf.Clamp(max, 0.001f, 1f);
+        max = Mathf.Clamp(max, 0.001f, 1.5f);
         int w = (int)(width * max + 0.5f);
         int h = (int)(height * max + 0.5f);
         return new Vector2Int(w, h);
@@ -644,6 +664,7 @@ public class MirrorReflection : MonoBehaviour
         ltwm = Matrix4x4.TRS(mirrorPos, Quaternion.identity, Vector3.one).inverse * ltwm;
         ltwm *= meshTrs.inverse;
         var worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
+
         if (!TryGetRectPixel(m_ReflectionCamera, worldCorners, boundsLocalSpace, ltwm, keepNearClip, out var frustum, out float nearDistance, out Rect pixelRect, out var mirrorPlane))
         {
             scaleOffset.transform.localPosition = Vector3.zero;
@@ -681,12 +702,14 @@ public class MirrorReflection : MonoBehaviour
         }
         m_ReflectionCamera.useOcclusionCulling = useOcclusion;
         m_ReflectionCamera.worldToCameraMatrix = GetViewMatrix(currentCam, mirrorPos, normal, eye, isStereo);
-        SetGlobalShaderRect(m_ReflectionCamera.rect);
-        if (useMasking)
+        SetGlobalShaderRect(m_ReflectionCamera.rect); 
+        var pixelWidth = targetTexture.width;
+        var pixelHeight = targetTexture.height;
+        var shouldUseMasking = ShouldUseMasking(pixelWidth, pixelHeight, pixelRect, useMasking, validRect);
+        if (shouldUseMasking)
         {
-            var pixelWidth = targetTexture.width;
-            var pixelHeight = targetTexture.height;
-            RenderWithCommanBuffers(new Rect(0, 0, pixelWidth, pixelHeight), pixelRect, willUseFrustum, validRect);
+           
+            RenderWithCommanBuffers(pixelWidth, pixelHeight, pixelRect, willUseFrustum, validRect);
         }
         else
         {
@@ -697,7 +720,16 @@ public class MirrorReflection : MonoBehaviour
         if (useMsaaTexture)
             CopyTexture(reflectionTexture, m_ReflectionTextureMSAA, pixelRect, validRect);
     }
-
+    private static bool ShouldUseMasking(int pixelWidth, int pixelHeight, Rect mirrorRect, bool useMasking, bool validRect)
+    {
+        if (!useMasking)
+            return false;
+        if (!validRect)
+            return true;
+        if ((mirrorRect.width / pixelWidth) > 0.95f && (mirrorRect.height / pixelHeight) > 0.95f)
+            return false;
+        return true;
+    }
     internal static void SetCullDistance(Camera m_ReflectionCamera, CullDistance cullDistance, float maxCullDistance, float[] maxCullDistances, Vector3 reflectedPos)
     {
         if (cullDistance == CullDistance.Default)
@@ -766,7 +798,7 @@ public class MirrorReflection : MonoBehaviour
         return worldToCameraMatrix;
     }
 
-    internal static void CopyTexture(RenderTexture rt, RenderTexture m_ReflectionTextureMSAA, Rect rect, bool validRect)
+    internal static void CopyTexture(RenderTexture reflectionTexture, RenderTexture reflectionTextureMSAA, Rect rect, bool validRect)
     {
         if (validRect)
         {
@@ -776,28 +808,29 @@ public class MirrorReflection : MonoBehaviour
             int y = Math.Max(0, (int)(pos.y - 0.01f));
             int w = (int)(size.x + 0.01f) + 2;
             int h = (int)(size.y + 0.01f) + 2;
-            w = Math.Min(x + w, m_ReflectionTextureMSAA.width) - x;
-            h = Math.Min(y + h, m_ReflectionTextureMSAA.height) - y;
-            Graphics.CopyTexture(m_ReflectionTextureMSAA, 0, 0, x, y, w, h, rt, 0, 0, x, y);
+            w = Math.Min(x + w, reflectionTextureMSAA.width) - x;
+            h = Math.Min(y + h, reflectionTextureMSAA.height) - y;
+            Graphics.CopyTexture(reflectionTextureMSAA, 0, 0, x, y, w, h, reflectionTexture, 0, 0, x, y);
         }
         else
         {
-            Graphics.CopyTexture(m_ReflectionTextureMSAA, rt);
+            Graphics.CopyTexture(reflectionTextureMSAA, reflectionTexture);
         }
     }
-
-    private void RenderWithCommanBuffers(Rect fullRect, Rect pixelRect, bool willUseFrustum, bool validRect)
+    private void RenderWithCommanBuffers(int pixelWidth, int pixelHeight, Rect pixelRect, bool willUseFrustum, bool validRect)
     {
-        CreateCommandBuffers(fullRect, pixelRect);
-        AddBuffers(CameraEvent.BeforeForwardOpaque, willUseFrustum, validRect);
+        var cameraEvent = CameraEvent.BeforeForwardOpaque;
+        CreateCommandBuffers(pixelWidth, pixelHeight, pixelRect);
+        AddBuffers(cameraEvent, willUseFrustum, validRect);
         m_ReflectionCamera.Render();
-        RemoveBuffers(CameraEvent.BeforeForwardOpaque);
+        RemoveBuffers(cameraEvent);
     }
 
     private void AddBuffers(CameraEvent cameraEvent, bool willUseFrustum, bool validRect)
     {
         m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
         m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferClearRenderTargetToZero);
+        
         if (validRect)
         {
             m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
@@ -805,7 +838,9 @@ public class MirrorReflection : MonoBehaviour
             m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
         }
         if (useMirrorMeshForMasking)
+        {
             m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferDrawMesh);
+        }
 
         if (willUseFrustum)
             m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
@@ -818,7 +853,7 @@ public class MirrorReflection : MonoBehaviour
         m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferSetRectLimited);
         m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferClearRenderTargetToOne);
     }
-    private void CreateCommandBuffers(Rect pixelRectFull, Rect pixelRectLimited)
+    private void CreateCommandBuffers(int pixelWidth, int pixelHeight, Rect pixelRectLimited)
     {
         var zeroCreated = CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0", clear: false);
         var oneCreate = CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1", clear: false);
@@ -846,7 +881,7 @@ public class MirrorReflection : MonoBehaviour
         {
             commandBufferDrawMesh.DrawRenderer(m_Renderer, m_DepthMaterial);
         }
-        commandBufferSetRectFull.SetViewport(pixelRectFull);
+        commandBufferSetRectFull.SetViewport(new Rect(0, 0, pixelWidth, pixelHeight));
         commandBufferSetRectLimited.SetViewport(pixelRectLimited);
     }
 
