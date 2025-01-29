@@ -21,11 +21,9 @@ public class MirrorAvatar : MonoBehaviour
     [Tooltip("Should sync blendshape values to shadow clones?")]
     public bool syncBlendshapes = true;
 
-    private const ShadowCastingMode shadowsOnly = ShadowCastingMode.ShadowsOnly;
     private const string MainCamera = "MainCamera";
     private const string PlayerCloneLayerName = "PlayerLocal"; //"PlayerClone";
     private const string HeadZeroBoneName = "HeadZeroBone";
-    private const string ShadowCloneSuffix = "-ShadowClone";
     private const string RendererCloneName = "RendererClones";
     private const string FirstPersonCloneSuffix = "-FirstPersonClone";
     private const string ZeroBoneName = "ZeroBone";
@@ -37,8 +35,8 @@ public class MirrorAvatar : MonoBehaviour
     private int frameIndex = 0;
     private bool isActive;
     private bool InitDone;
-    private bool originalMaterialsInPlace;
-    internal bool optionsChanged;
+    private bool isShrunk;
+    private bool optionsChanged;
     private Vector3 headPosition;
     private Transform head;
     private Transform headZero;
@@ -47,6 +45,7 @@ public class MirrorAvatar : MonoBehaviour
 
     private readonly List<Material> originalSmrSharedMaterials = new List<Material>();
     private readonly Dictionary<Renderer, MeshData> meshDatas = new Dictionary<Renderer, MeshData>();
+    private readonly List<MeshData> meshDatasList = new List<MeshData>();
     private readonly List<Renderer> _renderersToHide = new List<Renderer>();
     private readonly List<Renderer> _renderersToShow = new List<Renderer>();
     private readonly List<Renderer> removedFromHideList = new List<Renderer>();
@@ -61,6 +60,7 @@ public class MirrorAvatar : MonoBehaviour
     private static readonly List<Transform> tempTransforms = new List<Transform>();
     private static readonly List<Animator> tempAnimators = new List<Animator>();
     private static readonly HashSet<Transform> tempTransformsSet = new HashSet<Transform>();
+    private static readonly Dictionary<Camera, bool> IsMainCamera = new Dictionary<Camera, bool>();
 
     /// <summary>
     /// Bones to hide as key, their parent as value
@@ -77,6 +77,7 @@ public class MirrorAvatar : MonoBehaviour
     private static readonly ProfilerMarker s_MarkerShrinkMeshes = new ProfilerMarker(ProfilerCategory.Scripts, "Shrink meshes", Unity.Profiling.LowLevel.MarkerFlags.Script);
     private static readonly ProfilerMarker s_MarkerSyncMaterials = new ProfilerMarker(ProfilerCategory.Scripts, "Sync materials", Unity.Profiling.LowLevel.MarkerFlags.Script);
     private static readonly ProfilerMarker s_MarkerSyncBlendshapes = new ProfilerMarker(ProfilerCategory.Scripts, "Sync blendshapes", Unity.Profiling.LowLevel.MarkerFlags.Script);
+    private static readonly ProfilerMarker s_MarkerOncePerFrame = new ProfilerMarker(ProfilerCategory.Scripts, "Once per frame", Unity.Profiling.LowLevel.MarkerFlags.Script);
 
     [Flags] public enum MeshOptions : byte
     {
@@ -84,8 +85,8 @@ public class MirrorAvatar : MonoBehaviour
         Enabled = 1,
         Hide = 2,
         Shrink = 4,
-        OverrideHide = 8,
-        OverrideShow = 16,
+        AlwaysHide = 8,
+        AlwaysShow = 16,
     }
 
     [BurstCompile]
@@ -164,18 +165,25 @@ public class MirrorAvatar : MonoBehaviour
     }
     private void UpdatePerFrame()
     {
-        if (!InitDone)
-            Initialize();
+        try
+        {
+            s_MarkerOncePerFrame.Begin();
+            if (!InitDone)
+                Initialize();
 
-        var frameCount = Time.frameCount;
-        if (frameCount == frameIndex)
-            return;
+            var frameCount = Time.frameCount;
+            if (frameCount == frameIndex)
+                return;
 
-        SyncOncePerFrame();
-        frameIndex = frameCount;
-        headPosition = head.position;
-        
-        return;
+            SyncOncePerFrame();
+            frameIndex = frameCount;
+            headPosition = head.position;
+
+        }
+        finally 
+        {
+            s_MarkerOncePerFrame.End();
+        }
     }
     private bool IsEqual(List<Renderer> a, List<Renderer> b)
     {
@@ -201,14 +209,22 @@ public class MirrorAvatar : MonoBehaviour
     {
         m_RendererOptions.Remove(optionsTransform);
     }
+    internal void UpdateFromOptions(List<Transform> myTransforms, RendererOptions.RendererOptionsEnum rendererOptions) 
+    {
+        for (int i = 0; i < myTransforms.Count; i++)
+        {
+            SkinnedMeshRendererTransformOptions[myTransforms[i]] = rendererOptions;
+        }
+        optionsChanged = true;
+    }
     private void UpdateShowHide()
     {
         Add(removedFromHideList, _renderersToHide, RenderersToHide);
         Add(removedFromShowList, _renderersToShow, RenderersToShow);
-        ModifyOverrides(removedFromHideList, overrideHide: false, overrideShow: false);
-        ModifyOverrides(removedFromShowList, overrideHide: false, overrideShow: false);
-        ModifyOverrides(RenderersToShow, overrideHide: false, overrideShow: true);
-        ModifyOverrides(RenderersToHide, overrideHide: true, overrideShow: false);
+        ModifyOverrides(removedFromHideList, alwaysHide: false, alwaysShow: false);
+        ModifyOverrides(removedFromShowList, alwaysHide: false, alwaysShow: false);
+        ModifyOverrides(RenderersToShow, alwaysHide: false, alwaysShow: true);
+        ModifyOverrides(RenderersToHide, alwaysHide: true, alwaysShow: false);
         _renderersToHide.Clear();
         _renderersToShow.Clear();
         _renderersToHide.AddRange(RenderersToHide);
@@ -224,7 +240,7 @@ public class MirrorAvatar : MonoBehaviour
         }
     }
 
-    private void ModifyOverrides(List<Renderer> renderersIn, bool overrideHide, bool overrideShow)
+    private void ModifyOverrides(List<Renderer> renderersIn, bool alwaysHide, bool alwaysShow)
     {
         if (renderersIn.Count == 0)
             return;
@@ -234,8 +250,8 @@ public class MirrorAvatar : MonoBehaviour
             if (!meshDatas.TryGetValue(renderersIn[i], out var meshData) || meshData.renderer != renderersIn[i])
                 continue;
 
-            meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.OverrideHide, overrideHide);
-            meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.OverrideShow, overrideShow);
+            meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.AlwaysHide, alwaysHide);
+            meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.AlwaysShow, alwaysShow);
         }
     }
     public void Initialize()
@@ -305,7 +321,8 @@ public class MirrorAvatar : MonoBehaviour
         removedFromHideList.Clear();
         removedFromShowList.Clear();
         transformsToHide.Clear();
-        foreach (var item in meshDatas.Values)
+        meshDatasList.Clear();
+        foreach (var item in meshDatasList)
         {
             if (item.cloneSmr)
                 GameObject.Destroy(item.cloneSmr.gameObject);
@@ -383,6 +400,7 @@ public class MirrorAvatar : MonoBehaviour
             var meshData = new MeshData(otherRenderer, shadowClone);
             meshData.SetupSync();
             meshDatas.Add(otherRenderer, meshData);
+            meshDatasList.Add(meshData);
         }
         transformsCanBeHidden.Clear();
     }
@@ -401,7 +419,7 @@ public class MirrorAvatar : MonoBehaviour
             if (show)
                 continue;
             var hide = overrideOptions == RendererOptions.RendererOptionsEnum.ForceHide;
-            var renderShadowsOnly = otherRenderer.shadowCastingMode == shadowsOnly;
+            var renderShadowsOnly = otherRenderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly;
             var underHead = transformsUnderHeadSet.Contains(otherRenderer.gameObject.transform);
             if (hide || underHead && !renderShadowsOnly)
             {
@@ -491,7 +509,7 @@ public class MirrorAvatar : MonoBehaviour
             var overrideOptions = GetRendererOptions(gameObject.transform);
             var show = overrideOptions == RendererOptions.RendererOptionsEnum.ForceShow;
             var hide = overrideOptions == RendererOptions.RendererOptionsEnum.ForceHide;
-            if (show || skinnedMeshRenderer.shadowCastingMode == shadowsOnly)
+            if (show || skinnedMeshRenderer.shadowCastingMode == ShadowCastingMode.ShadowsOnly)
             {
                 //don't hide/shrink stuff that's shadows only or is tagged to be shown
                 if (hide)
@@ -527,6 +545,7 @@ public class MirrorAvatar : MonoBehaviour
             var needsShadows = skinnedMeshRenderer.shadowCastingMode != ShadowCastingMode.Off;
             var meshData = new MeshData(skinnedMeshRenderer, needsShadows);
             meshDatas.Add(skinnedMeshRenderer, meshData);
+            meshDatasList.Add(meshData);
             meshData.originalBones = skinnedMeshRenderer.bones;
             meshData.hiddenBones = meshData.originalBones?.ToArray();
             meshData.existingBones = new bool[meshData.originalBones?.Length ?? 0];
@@ -589,7 +608,7 @@ public class MirrorAvatar : MonoBehaviour
     private void CheckMeshForShrinkNoBones(MeshData meshData, bool hide)
     {
         var hideThisMesh = transformsUnderHeadSet.Contains(meshData.skinnedMeshRenderer.gameObject.transform) &&
-            meshData.skinnedMeshRenderer.shadowCastingMode != shadowsOnly;
+            meshData.skinnedMeshRenderer.shadowCastingMode != ShadowCastingMode.ShadowsOnly;
         hideThisMesh |= hide;
         meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.Shrink, hideThisMesh);
         meshData.meshOptions = meshData.meshOptions.SetFlag(MeshOptions.Hide, hideThisMesh);
@@ -632,9 +651,9 @@ public class MirrorAvatar : MonoBehaviour
             var otherHide = transformsToHide.ContainsKey(bone);
             var headHide = transformsUnderHeadSet.Contains(bone);
             var _overrideOptions = GetRendererOptions(bone);
-            var overrideShow = _overrideOptions == RendererOptions.RendererOptionsEnum.ForceShow;
-            var overrideHide = _overrideOptions == RendererOptions.RendererOptionsEnum.ForceHide;
-            var hide = otherHide | headHide | overrideHide;
+            var alwaysShow = _overrideOptions == RendererOptions.RendererOptionsEnum.ForceShow;
+            var alwaysHide = _overrideOptions == RendererOptions.RendererOptionsEnum.ForceHide;
+            var hide = otherHide | headHide | alwaysHide;
             if (hide && noHeadBones[j] != transformsToHide[bone])
             {
                 // if not hidden, hide
@@ -645,7 +664,7 @@ public class MirrorAvatar : MonoBehaviour
                 // if not hidden, show
                 noHeadBones[j] = bones[j];
             }
-            if (((!headHide && !otherHide) || overrideShow) && !overrideHide)
+            if (((!headHide && !otherHide) || alwaysShow) && !alwaysHide)
                 continue;
 
             shrinkThisMesh = true;
@@ -786,22 +805,23 @@ public class MirrorAvatar : MonoBehaviour
     private void SyncClones()
     {
         s_MarkerSyncClones.Begin();
-        foreach (var item in meshDatas.Values)
+        for (int i = 0; i < meshDatasList.Count; i++)
         {
-            if (!item.renderer)
+            var meshData = meshDatasList[i];
+            if (!meshData.renderer)
             {
-                if (item.cloneSmr)
-                    GameObject.Destroy(item.cloneSmr);
+                if (meshData.cloneSmr)
+                    GameObject.Destroy(meshData.cloneSmr);
                 continue;
             }
-            if (!item.renderer.enabled)
+            if (!meshData.renderer.enabled)
                 continue;
 
-            SyncMaterials(item);
+            SyncMaterials(meshData);
 
-            if (syncBlendshapes && item.hasBlendshapes && item.hasClone)
+            if (syncBlendshapes && meshData.hasBlendshapes && meshData.hasClone)
             {
-                SyncBlendshapes(item);
+                SyncBlendshapes(meshData);
             }
         }
         s_MarkerSyncClones.End();
@@ -866,13 +886,27 @@ public class MirrorAvatar : MonoBehaviour
             s_MarkerSyncMaterials.End();
         }
     }
-
+    private static bool IsCameraMain(Camera cam)
+    {
+        if (!IsMainCamera.TryGetValue(cam, out bool value))
+        {
+            value = IsMainCamera[cam] = cam.CompareTag(MainCamera);
+        }
+        return value;
+    }
     public void OnPreRenderShrink(Camera cam)
     {
+        // only run this on the main camera
+        var main = IsCameraMain(cam);
+        if (!main)
+        {
+            if (isShrunk)
+                UnShrinkMeshes();
+            return;
+        }
         UpdatePerFrame();
 
-        // only run this on the main camera
-        isActive = cam.CompareTag(MainCamera) && Vector3.Distance(cam.transform.position, headPosition) < MaxDistance;
+        isActive = Vector3.Distance(cam.transform.position, headPosition) < MaxDistance;
         if (!isActive)
         {
             UnShrinkMeshes();
@@ -885,7 +919,8 @@ public class MirrorAvatar : MonoBehaviour
     public void OnPostRenderShrink(Camera cam)
     {
         // only run this on the main camera
-        if (!isActive || !cam.CompareTag(MainCamera))
+        var main = IsCameraMain(cam); //cam.CompareTag(MainCamera);
+        if (!isActive || !main)
             return;
 
         UnShrinkMeshes();        
@@ -907,15 +942,16 @@ public class MirrorAvatar : MonoBehaviour
     private void ShrinkMeshes()
     {
         s_MarkerShrinkMeshes.Begin();
-        foreach (var meshDataPairs in meshDatas)
+        for (int i = 0; i < meshDatasList.Count; i++)
         {
-            var meshData = meshDataPairs.Value;
+            var meshData = meshDatasList[i];
             var renderer = meshData.renderer;
             var options = meshData.meshOptions;
-            var alwaysHide = options.HasFlag(MeshOptions.OverrideHide);
-            var alwaysShow = options.HasFlag(MeshOptions.OverrideShow);
+            bool alwaysHide = options.HasFlag(MeshOptions.AlwaysHide);
+            var alwaysShow = options.HasFlag(MeshOptions.AlwaysShow);
             var shrink = options.HasFlag(MeshOptions.Shrink);
             var hide = options.HasFlag(MeshOptions.Hide);
+            
             if ((!alwaysHide && alwaysShow) || !renderer)
             {
                 meshData.isShrinked = false;
@@ -926,7 +962,6 @@ public class MirrorAvatar : MonoBehaviour
                 var skinnedMeshRenderer = meshData.skinnedMeshRenderer;
                 if (!skinnedMeshRenderer)
                     continue;
-
                 meshData.enabledState = renderer.enabled;
                 if (alwaysHide && !alwaysShow)
                 {
@@ -948,13 +983,12 @@ public class MirrorAvatar : MonoBehaviour
     private void UnShrinkMeshes()
     {
         s_MarkerRestoreOriginal.Begin();
-        if (originalMaterialsInPlace)
+        if (!isShrunk)
             return;
 
-        foreach (var meshDataPairs in meshDatas)
+        for (int i = 0; i < meshDatasList.Count; i++)
         {
-            var meshData = meshDataPairs.Value;
-
+            var meshData = meshDatasList[i];
             if (!meshData.isShrinked)
                 continue;
 
@@ -973,18 +1007,18 @@ public class MirrorAvatar : MonoBehaviour
             }
             meshData.isShrinked = false;
         }
-        originalMaterialsInPlace = true;
+        isShrunk = false;
         s_MarkerRestoreOriginal.End();
     }
     private void SwapToClone() 
     {
-        if (!originalMaterialsInPlace)
+        if (isShrunk)
             return;
 
         s_MarkerDisableOriginal.Begin();
-        foreach (var meshDataPairs in meshDatas)
+        for (int i = 0; i < meshDatasList.Count; i++)
         {
-            var meshData = meshDataPairs.Value;
+            var meshData = meshDatasList[i];
             if (!meshData.isShrinked)
                 continue;
 
@@ -1004,7 +1038,7 @@ public class MirrorAvatar : MonoBehaviour
                 meshData.renderer.sharedMaterials = emptyMaterials;
             }
         }
-        originalMaterialsInPlace = false;
+        isShrunk = true;
         s_MarkerDisableOriginal.End();
     }
 

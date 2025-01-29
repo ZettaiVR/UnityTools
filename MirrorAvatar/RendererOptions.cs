@@ -21,7 +21,7 @@ public class RendererOptions : MonoBehaviour
         if (!gameObject.TryGetComponent(out myRenderer))
         {
             transform.GetComponentsInChildren(true, myTransforms); 
-            UpdateTransforms();
+            mirrorAvatar.UpdateFromOptions(myTransforms, firstPersonVisibility);
         }
         if (mirrorAvatar)
             mirrorAvatar.AddRendererOptions(this);
@@ -37,7 +37,7 @@ public class RendererOptions : MonoBehaviour
             mirrorAvatar.RemoveRendererOptions(transform); 
             foreach (var t in myTransforms)
             {
-                mirrorAvatar.skinnedMeshRendererTransformOptions[t] = RendererOptionsEnum.Default;
+                mirrorAvatar.SkinnedMeshRendererTransformOptions[t] = RendererOptionsEnum.Default;
             }
         }
     }
@@ -58,7 +58,7 @@ public class RendererOptions : MonoBehaviour
 
         previousFirstPersonVisibility = firstPersonVisibility;
 
-        UpdateTransforms();
+        mirrorAvatar.UpdateFromOptions(myTransforms, firstPersonVisibility);
 
         if (!myRenderer)
             return;
@@ -91,15 +91,6 @@ public class RendererOptions : MonoBehaviour
                     break;
                 }
         }
-    }
-
-    private void UpdateTransforms()
-    {
-        foreach (var t in myTransforms)
-        {
-            mirrorAvatar.skinnedMeshRendererTransformOptions[t] = firstPersonVisibility;
-        }
-        mirrorAvatar.optionsChanged = true;
     }
 }
 
